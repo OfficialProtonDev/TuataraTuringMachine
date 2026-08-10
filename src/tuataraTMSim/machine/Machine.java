@@ -239,26 +239,6 @@ public abstract class Machine<
     }
 
     /**
-     * Determine if there is a state label at the given coordinates.
-     * @param g The graphics object, used to measure the label's dimensions.
-     * @param clickX The X ordinate.
-     * @param clickY The Y ordinate.
-     * @return The topmost state at the given coordinates, or null if there is no such state.
-     */
-    public STATE getStateLabelClickedOn(Graphics g, int clickX, int clickY)
-    {
-        STATE result = null;
-        for (STATE s : getStates())
-        {
-            if (s.nameContainsPoint(g, clickX, clickY))
-            {
-                result = s;
-            }
-        }
-        return result;
-    }
-
-    /**
      * Determine if there is a transition a the given coordinates.
      * @param clickX The X ordinate.
      * @param clickY The Y ordinate.

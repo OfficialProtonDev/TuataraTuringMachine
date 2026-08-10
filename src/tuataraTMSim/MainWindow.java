@@ -28,14 +28,9 @@ package tuataraTMSim;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.Point2D;
-import java.beans.PropertyVetoException;
 import java.io.*;
 import java.util.*;
 import javax.swing.*;
-import javax.swing.border.BevelBorder;
-import javax.swing.event.InternalFrameAdapter;
-import javax.swing.event.InternalFrameEvent;
-import javax.swing.event.MouseInputAdapter;
 import tuataraTMSim.commands.*;
 import tuataraTMSim.exceptions.*;
 import tuataraTMSim.machine.*;
@@ -43,16 +38,11 @@ import tuataraTMSim.machine.TM.*;
 import tuataraTMSim.machine.DFSA.*;
 
 /**
- * The main window of the program. An MDI interface for building and running turing machines.
+ * The main window of the program. A tabbed interface for building and running turing machines.
  * This class is the main entry point into the program.
  */
 public class MainWindow extends JFrame
-{ 
-    /**
-     * The layer used for internal frames containing machines.
-     */
-    protected static final int MACHINE_WINDOW_LAYER = 50;
-       
+{
     /**
      * String for execution halting.
      */
@@ -102,34 +92,17 @@ public class MainWindow extends JFrame
      * Vertical translation of states to avoid stacking.
      */
     protected static final int TRANSLATE_TO_AVOID_STACKING_Y = State.STATE_RENDERING_WIDTH * 2;
-    
-    /**
-     * Maximum horizontal ratio for new window location.
-     */
-    protected static final double maxHorizontalRatioForNewWindowLoc = 0.3;
 
     /**
-     * Maximum vertical ratio for new window location.
+     * Size the toolbar renders its icons at.
      */
-    protected static final double maxVerticalRatioForNewWindowLoc = 0.3;
+    protected static final int TOOLBAR_ICON_SIZE = 18;
 
     /**
-     * Minimum distance between two new windows.
+     * Size the menus render their icons at.
      */
-    protected static int minDistanceForNewWindowLoc = 50;
+    protected static final int MENU_ICON_SIZE = 16;
 
-    /**
-     * Random step between distances between new windows.
-     * Considered for removal.
-     */
-    protected static int windowLocRandomStepSize = 10;
-    
-    /**
-     * Random number generator used for state and transition placement.
-     * Considered for removal.
-     */
-    protected Random myRandom = new Random();
-    
     /**
      * Creates a new instance of MainWindow.
      */
@@ -180,12 +153,14 @@ public class MainWindow extends JFrame
                        e.getKeyCode() == KeyEvent.VK_DELETE ||
                        e.getKeyCode() == KeyEvent.VK_BACK_SPACE)))
                {
-                   if (m_asif.isVisible())
+                   // A modal dialog owns the keyboard while it is up; the alphabet selector now
+                   // handles its own typing rather than having it routed here.
+                   Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                       .getActiveWindow();
+                   if (active != null && active != MainWindow.this)
                    {
-                       m_asif.handleKeyEvent(e);
                        return false;
                    }
-                   char c = e.getKeyChar();
 
                    if (gfxPanel != null)
                    {
@@ -224,15 +199,8 @@ public class MainWindow extends JFrame
      */
     public static void main(String[] args)
     {
-        // Choose the look-and-feel for the program before running everything
-        try
-        {
-            UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
-        }
-        catch (Exception e)
-        {
-            // Unable to change look-and-feel; ignore
-        }
+        // Install the theme, which also chooses the look-and-feel, before building any component.
+        Theme.install();
 
         java.awt.EventQueue.invokeLater(new Runnable()
         {
@@ -244,12 +212,12 @@ public class MainWindow extends JFrame
     }
 
     /**
-     * Get the desktop pane in use by the window.
-     * @return The desktop pane in use.
+     * Get the tabbed pane holding every open machine.
+     * @return The tab pane in use.
      */
-    public JDesktopPane getDesktopPane()
+    public MachineTabPane getTabPane()
     {
-        return m_desktopPane;
+        return m_tabs;
     }
 
     /**
@@ -267,25 +235,34 @@ public class MainWindow extends JFrame
      */
     public MachineGraphicsPanel getSelectedGraphicsPanel()
     {
-        if (m_desktopPane == null)
+        if (m_tabs == null)
         {
             return null;
         }
-        JInternalFrame selected = m_desktopPane.getSelectedFrame();
-        if (selected == null)
+        MachineInternalFrame selected = m_tabs.getSelectedDocument();
+        return selected == null? null : selected.getGfxPanel();
+    }
+
+    /**
+     * Get every machine document currently open.
+     * @return A list of the open documents.
+     */
+    public ArrayList<MachineInternalFrame> getOpenDocuments()
+    {
+        ArrayList<MachineInternalFrame> result = new ArrayList<MachineInternalFrame>();
+        if (m_tabs == null)
         {
-            return null;
+            return result;
         }
-        try
+        for (int i = 0; i < m_tabs.getTabCount(); i++)
         {
-            MachineInternalFrame tmif = (MachineInternalFrame)selected;
-            return tmif.getGfxPanel();
+            Component c = m_tabs.getComponentAt(i);
+            if (c instanceof MachineInternalFrame)
+            {
+                result.add((MachineInternalFrame)c);
+            }
         }
-        catch (ClassCastException e)
-        {
-            // Wrong window type
-            return null;
-        }
+        return result;
     }
 
     /**
@@ -314,37 +291,29 @@ public class MainWindow extends JFrame
     public void setUIMode(GUI_Mode mode)
     {
         m_currentMode = mode;
-        if (m_desktopPane == null)
+
+        for (MachineInternalFrame doc : getOpenDocuments())
         {
-            return;
+            doc.getGfxPanel().setUIMode(mode);
         }
 
-        JInternalFrame[] internalFrames = m_desktopPane.getAllFramesInLayer(MACHINE_WINDOW_LAYER);
-        for (JInternalFrame frame : internalFrames)
+        if (m_toolbarButtons != null)
         {
-            try
+            for (GUIModeButton b : m_toolbarButtons)
             {
-                MachineInternalFrame tmif = (MachineInternalFrame)frame;
-                MachineGraphicsPanel panel = (MachineGraphicsPanel)tmif.getGfxPanel();
-                panel.setUIMode(mode);
-            }
-            catch (ClassCastException e)
-            {
-                // Not the right type of window, ignore it.
+                b.setChosen(b.getGUI_Mode() == mode);
             }
         }
+        refreshStatus();
+    }
 
-        for (GUIModeButton b : m_toolbarButtons)
-        {
-            if (b.getGUI_Mode() == mode)
-            {
-                b.setBorder(BorderFactory.createBevelBorder(BevelBorder.LOWERED));
-            }
-            else
-            {
-                b.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-            }
-        }
+    /**
+     * Get the interaction mode currently selected.
+     * @return The current GUI mode.
+     */
+    public GUI_Mode getUIMode()
+    {
+        return m_currentMode;
     }
     
     /** 
@@ -353,92 +322,260 @@ public class MainWindow extends JFrame
     private void initComponents()
     {
         // Set up the main window
-        setMinimumSize(new Dimension(640, 480));
+        setMinimumSize(new Dimension(860, 560));
         setTitle("Tuatara Turing Machine Simulator");
         setIconImage(Global.loadIcon("tuatara.png").getImage());
-
-        // Omnibus will be the panel which contains everything barring the toolbar
-        JPanel omnibus = new JPanel();
- 
-        // Desktop pane holds all internal frames
-        m_desktopPane = new JDesktopPane();
-        m_desktopPane.setMinimumSize(new Dimension(200, 400));
-        m_desktopPane.setPreferredSize(new Dimension(1600, 1200));
-        m_desktopPane.setDragMode(JDesktopPane.OUTLINE_DRAG_MODE);
-
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+
+        // Tabs hold every open machine. The welcome panel takes their place while none are open,
+        // so that the window is never simply blank.
+        m_tabs = new MachineTabPane();
+        m_tabs.addChangeListener(new javax.swing.event.ChangeListener()
+        {
+            public void stateChanged(javax.swing.event.ChangeEvent e)
+            {
+                setEnabledActionsThatRequireAMachine(getSelectedGraphicsPanel() != null);
+                updateUndoActions();
+                refreshStatus();
+            }
+        });
+
+        m_welcome = new WelcomePanel(m_newTuringMachineAction, m_newDFSAAction, m_openMachineAction);
+
+        m_documentArea = new JPanel(new BorderLayout());
+        m_documentArea.add(m_welcome, BorderLayout.CENTER);
 
         // Console is the global point for logging
         m_console = new ConsolePanel();
-        m_console.setMinimumSize(new Dimension(200, 100));
-        m_console.setPreferredSize(new Dimension(200, 100));
-        
-        // The desktop pane and console go together in a horizontal-split pane so the console may be
-        // resized veritcally only. Additionally requires that components be continuously redrawn
-        // when resized. setMinimumSize(0,0) ensures that the tape display is always shown.
-        JSplitPane mainPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, m_desktopPane, m_console);
-        mainPane.setMinimumSize(new Dimension(0,0));
-        mainPane.setOneTouchExpandable(true);
-        mainPane.setResizeWeight(0.9D);
-        
+        m_console.setMinimumSize(new Dimension(200, 80));
+        m_console.setPreferredSize(new Dimension(200, 120));
+
+        // The document area and console go together in a vertical-split pane so the console may be
+        // resized vertically only. setMinimumSize(0,0) ensures that the tape display is always shown.
+        m_mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, m_documentArea, m_console);
+        m_mainSplit.setMinimumSize(new Dimension(0,0));
+        m_mainSplit.setOneTouchExpandable(true);
+        m_mainSplit.setResizeWeight(0.82D);
+        m_mainSplit.setBorder(BorderFactory.createEmptyBorder());
+
         // Set up the tape and associated controllers
         m_tape = new CA_Tape();
         m_tapeDisp = new TapeDisplayPanel(m_tape);
-        m_tapeDispController = 
-            new TapeDisplayControllerPanel(m_tapeDisp, m_headToStartAction, m_eraseTapeAction, m_reloadTapeAction); 
-        m_tapeDispController.setBounds(0, getHeight() - m_tapeDispController.getHeight(), getWidth(),100); 
-        m_tapeDispController.setVisible(true);
-        
+        m_tapeDispController =
+            new TapeDisplayControllerPanel(m_tapeDisp, m_headToStartAction, m_eraseTapeAction, m_reloadTapeAction);
+
         // Set up the file choosers
         m_fcMachine.setDialogTitle("Save machine");
         m_fcMachine.addChoosableFileFilter(TMGraphicsPanel.FILE_FILTER);
         m_fcMachine.addChoosableFileFilter(DFSAGraphicsPanel.FILE_FILTER);
-       
+
         m_fcTape.setDialogTitle("Save tape");
         m_fcTape.addChoosableFileFilter(Tape.FILE_FILTER);
-        
+
         // Set up menus
         setJMenuBar(createMenus());
-        
-        // Set up toolbars
-        ToolBarPanel toolbars = new ToolBarPanel(this, new FlowLayout(FlowLayout.LEFT));
-        for (JToolBar tb : createToolbar())
-        {
-            toolbars.add(tb);
-        }
 
-        // Attach the toolbar to the top of the window
-        getContentPane().setLayout(new BoxLayout(getContentPane(), BoxLayout.Y_AXIS));
-        getContentPane().add(toolbars);
+        // Status bar, reporting the active tool and the state of any running machine
+        m_statusBar = new StatusBar();
 
-        // Add the desktop pane and tape controller to the omnibus; add that to the bottom of the window
-        omnibus.setLayout(new BorderLayout());
-        omnibus.add(mainPane, BorderLayout.CENTER);
-        omnibus.add(m_tapeDispController, java.awt.BorderLayout.SOUTH);
-        getContentPane().add(omnibus);
+        // Assemble: toolbar on top, then documents over console, then the tape, then the status bar.
+        JPanel centre = new JPanel(new BorderLayout());
+        centre.add(m_mainSplit, BorderLayout.CENTER);
+        centre.add(m_tapeDispController, BorderLayout.SOUTH);
+
+        getContentPane().setLayout(new BorderLayout());
+        getContentPane().add(createToolbar(), BorderLayout.NORTH);
+        getContentPane().add(centre, BorderLayout.CENTER);
+        getContentPane().add(m_statusBar, BorderLayout.SOUTH);
+
+        registerWindowShortcuts();
 
         // Maximize on startup
         this.setExtendedState(Frame.MAXIMIZED_BOTH);
 
-        // Create the alphabet configuration internal frame
-        m_asif = new AlphabetSelectorInternalFrame();
-        m_asif.pack();
-
-        // Make the internal frames quasi-modal.
-        JPanel glass = new JPanel();
-        glass.setOpaque(false);
-        glass.add(m_asif);
-        setGlassPane(glass);
-        
-        // The ModalAdapter intercepts all mouse events when the glass pane is visible.
-        ModalAdapter adapter = new ModalAdapter(glass);
-        m_asif.addInternalFrameListener(adapter);
+        Theme.onChange(new Runnable()
+        {
+            public void run()
+            {
+                applyTheme();
+            }
+        });
+        applyTheme();
 
         // Disable all toolbars (no default machine)
-        setEnabledActionsThatRequireAMachine(false); 
-        
+        setEnabledActionsThatRequireAMachine(false);
+
         setVisible(true);
         updateUndoActions();
+        refreshStatus();
+    }
+
+    /**
+     * Apply the current palette to the parts of the window which are not themselves theme-aware.
+     */
+    private void applyTheme()
+    {
+        Theme.Palette p = Theme.palette();
+        getContentPane().setBackground(p.background);
+        if (m_documentArea != null)
+        {
+            m_documentArea.setBackground(p.canvas);
+        }
+        if (m_toolbar != null)
+        {
+            m_toolbar.setBackground(p.background);
+            m_toolbar.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createMatteBorder(0, 0, 1, 0, p.border),
+                        BorderFactory.createEmptyBorder(5, 8, 5, 8)));
+        }
+        repaint();
+    }
+
+    /**
+     * Register the window-level keyboard shortcuts which are not attached to a menu item.
+     */
+    private void registerWindowShortcuts()
+    {
+        JRootPane root = getRootPane();
+
+        root.registerKeyboardAction(new ActionListener()
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                MachineInternalFrame doc = m_tabs.getSelectedDocument();
+                if (doc != null)
+                {
+                    userConfirmSaveModifiedThenClose(doc);
+                }
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_W, KeyEvent.CTRL_DOWN_MASK),
+           JComponent.WHEN_IN_FOCUSED_WINDOW);
+
+        root.registerKeyboardAction(new ActionListener()
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                int n = m_tabs.getTabCount();
+                if (n > 1)
+                {
+                    m_tabs.setSelectedIndex((m_tabs.getSelectedIndex() + 1) % n);
+                }
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.CTRL_DOWN_MASK),
+           JComponent.WHEN_IN_FOCUSED_WINDOW);
+    }
+
+    /**
+     * Refresh the tab showing the given document. Called when a document's title or modified state
+     * changes.
+     * @param doc The document whose tab should be refreshed.
+     */
+    public void refreshTab(MachineInternalFrame doc)
+    {
+        if (m_tabs != null)
+        {
+            m_tabs.refreshTab(doc);
+        }
+    }
+
+    /**
+     * Update the status bar from the current machine, simulation and tape.
+     */
+    public void refreshStatus()
+    {
+        if (m_statusBar == null)
+        {
+            return;
+        }
+
+        m_statusBar.setTool(iconForMode(m_currentMode), labelForMode(m_currentMode));
+
+        MachineGraphicsPanel panel = getSelectedGraphicsPanel();
+        if (panel == null)
+        {
+            m_statusBar.setMachineInfo("");
+            m_statusBar.setRunInfo("run", "", null);
+        }
+        else
+        {
+            Machine machine = panel.getSimulator().getMachine();
+            int states = machine.getStates().size();
+            int transitions = machine.getTransitions().size();
+            m_statusBar.setMachineInfo(String.format("%s  ·  %d %s, %d %s",
+                        panel.getMachineType(),
+                        states, states == 1? "state" : "states",
+                        transitions, transitions == 1? "transition" : "transitions"));
+
+            State current = panel.getSimulator().getCurrentState();
+            if (!m_editingEnabled)
+            {
+                m_statusBar.setRunInfo("run", current != null
+                        ? "Running — in " + current.getLabel() : "Running",
+                        Theme.palette().success);
+            }
+            else if (current != null)
+            {
+                m_statusBar.setRunInfo("pause", "Paused — in " + current.getLabel(),
+                        Theme.palette().warning);
+            }
+            else
+            {
+                m_statusBar.setRunInfo("run", "", null);
+            }
+        }
+
+        if (m_tape != null)
+        {
+            m_statusBar.setTapeInfo(String.format("Head at %d", m_tape.headLocation()));
+        }
+    }
+
+    /**
+     * Get the icon representing an interaction mode.
+     * @param mode The interaction mode.
+     * @return The name of the icon.
+     */
+    private static String iconForMode(GUI_Mode mode)
+    {
+        if (mode == null)
+        {
+            return "select";
+        }
+        switch (mode)
+        {
+            case ADDNODES:           return "state";
+            case ADDTRANSITIONS:     return "transition";
+            case SELECTION:          return "select";
+            case ERASER:             return "eraser";
+            case CHOOSESTART:        return "start";
+            case CHOOSEFINAL:        return "final";
+            case CHOOSECURRENTSTATE: return "current";
+            default:                 return "select";
+        }
+    }
+
+    /**
+     * Get the human-readable name of an interaction mode.
+     * @param mode The interaction mode.
+     * @return The name of the mode.
+     */
+    private static String labelForMode(GUI_Mode mode)
+    {
+        if (mode == null)
+        {
+            return "";
+        }
+        switch (mode)
+        {
+            case ADDNODES:           return "Add states";
+            case ADDTRANSITIONS:     return "Add transitions";
+            case SELECTION:          return "Select";
+            case ERASER:             return "Erase";
+            case CHOOSESTART:        return "Set start state";
+            case CHOOSEFINAL:        return "Set final state";
+            case CHOOSECURRENTSTATE: return "Set current state";
+            default:                 return "";
+        }
     }
     
     /** 
@@ -455,7 +592,7 @@ public class MainWindow extends JFrame
         menuBar.add(fileMenu);
       
         JMenu newSubmenu = new JMenu("New Machine");
-        newSubmenu.setIcon(Global.loadIcon("newMachine.png"));
+        newSubmenu.setIcon(Icons.get("new-machine", MENU_ICON_SIZE));
         newSubmenu.setMnemonic(KeyEvent.VK_N);
         newSubmenu.add(new JMenuItem(m_newTuringMachineAction));
         newSubmenu.add(new JMenuItem(m_newDFSAAction));
@@ -464,6 +601,7 @@ public class MainWindow extends JFrame
         fileMenu.add(new JMenuItem(m_openMachineAction));
         fileMenu.add(new JMenuItem(m_saveMachineAction));
         fileMenu.add( new JMenuItem(m_saveMachineAsAction));
+        fileMenu.add(new JMenuItem(m_closeMachineAction));
         fileMenu.addSeparator();
         fileMenu.add(new JMenuItem(m_newTapeAction));
         fileMenu.add(new JMenuItem(m_openTapeAction));
@@ -485,6 +623,39 @@ public class MainWindow extends JFrame
         editMenu.add(new JMenuItem(m_pasteAction));
         editMenu.add(new JMenuItem(m_deleteAction));
         
+
+        // View menu
+        JMenu viewMenu = new JMenu("View");
+        viewMenu.setMnemonic(KeyEvent.VK_V);
+        menuBar.add(viewMenu);
+
+        JMenu appearanceMenu = new JMenu("Appearance");
+        appearanceMenu.setIcon(Icons.get("light", MENU_ICON_SIZE));
+        ButtonGroup appearanceItems = new ButtonGroup();
+
+        m_lightThemeItem = new JRadioButtonMenuItem(m_lightThemeAction);
+        m_darkThemeItem = new JRadioButtonMenuItem(m_darkThemeAction);
+        appearanceMenu.add(m_lightThemeItem);
+        appearanceMenu.add(m_darkThemeItem);
+        appearanceItems.add(m_lightThemeItem);
+        appearanceItems.add(m_darkThemeItem);
+        m_lightThemeItem.setSelected(!Theme.isDark());
+        m_darkThemeItem.setSelected(Theme.isDark());
+        viewMenu.add(appearanceMenu);
+
+        viewMenu.addSeparator();
+        m_showConsoleItem = new JCheckBoxMenuItem(m_toggleConsoleAction);
+        m_showConsoleItem.setSelected(true);
+        viewMenu.add(m_showConsoleItem);
+
+        m_showStatusBarItem = new JCheckBoxMenuItem(m_toggleStatusBarAction);
+        m_showStatusBarItem.setSelected(true);
+        viewMenu.add(m_showStatusBarItem);
+
+        m_showTapeItem = new JCheckBoxMenuItem(m_toggleTapeAction);
+        m_showTapeItem.setSelected(true);
+        viewMenu.add(m_showTapeItem);
+
 
         // Mode menu
         JMenu modeMenu = new JMenu("Mode");
@@ -599,303 +770,251 @@ public class MainWindow extends JFrame
     }
     
     /**
-     * Set up a toolbar for quick access to common actions.
-     * @return An array of created toolbars.
+     * Build the toolbar: a single flat strip, divided into groups for file actions, editing, the
+     * mutually exclusive drawing tools, and running a machine.
+     *
+     * The program previously presented three undifferentiated strips of bevelled icon buttons, in
+     * which a destructive action, a mode switch and the run command were indistinguishable. Grouping
+     * them and labelling the run controls makes the common path obvious.
+     *
+     * @return The toolbar.
      */
-    private JToolBar[] createToolbar()
+    private JComponent createToolbar()
     {
-        // Every toolbar button will be registered here for iteration purposes
+        // Every mode button will be registered here for iteration purposes
         m_toolbarButtons = new ArrayList<GUIModeButton>();
 
-        // Entire toolstrip will be composed of three toolbars
-        JToolBar[] returner = new JToolBar[3];
-        
-        // Machine
-        // SPECIAL: newMachine causes a JPopupMenu to show, which contains all new***MachineAction's
-        JButton newMachineToolBarButton = new JButton(Global.loadIcon("newMachine.png"));
-        JPopupMenu machineMenu = new JPopupMenu();
-        machineMenu.add(m_newTuringMachineAction);
-        machineMenu.add(m_newDFSAAction);
-        newMachineToolBarButton.addMouseListener(new MouseAdapter()
+        m_toolbar = new JPanel(new WrapLayout(FlowLayout.LEFT, 2, 3));
+        m_toolbar.setOpaque(true);
+
+        // ---- File group.
+        // SPECIAL: newMachine shows a popup menu containing all new***MachineAction's
+        final FlatButton newMachineButton = new FlatButton(null, "new-machine", FlatButton.Style.TOOL, false);
+        newMachineButton.setIconSize(TOOLBAR_ICON_SIZE);
+        newMachineButton.setToolTipText("Create a new machine");
+        final JPopupMenu newMachineMenu = new JPopupMenu();
+        newMachineMenu.add(m_newTuringMachineAction);
+        newMachineMenu.add(m_newDFSAAction);
+        newMachineButton.addActionListener(new ActionListener()
         {
-            // Show the popup menu when clicked
-            public void mouseClicked(MouseEvent e)
+            public void actionPerformed(ActionEvent e)
             {
-                if (e.getButton() == MouseEvent.BUTTON1)
+                newMachineMenu.show(newMachineButton, 0, newMachineButton.getHeight());
+            }
+        });
+
+        m_toolbar.add(newMachineButton);
+        m_toolbar.add(button(m_openMachineAction, "open"));
+        m_toolbar.add(button(m_saveMachineAction, "save"));
+        m_toolbar.add(new FlatButton.Divider());
+
+        // ---- Tape group.
+        m_toolbar.add(button(m_newTapeAction, "new-tape"));
+        m_toolbar.add(button(m_openTapeAction, "open-tape"));
+        m_toolbar.add(button(m_saveTapeAction, "save-tape"));
+        m_toolbar.add(new FlatButton.Divider());
+
+        // ---- Edit group.
+        m_undoToolBarButton = button(m_undoAction, "undo");
+        m_redoToolBarButton = button(m_redoAction, "redo");
+        m_toolbar.add(m_undoToolBarButton);
+        m_toolbar.add(m_redoToolBarButton);
+        m_toolbar.add(button(m_cutAction, "cut"));
+        m_toolbar.add(button(m_copyAction, "copy"));
+        m_toolbar.add(button(m_pasteAction, "paste"));
+
+        FlatButton delete = new FlatButton(m_deleteAction, "delete", FlatButton.Style.DANGER, false);
+        delete.setIconSize(TOOLBAR_ICON_SIZE);
+        m_toolbar.add(delete);
+        m_toolbar.add(new FlatButton.Divider());
+
+        // ---- Tool group. Exactly one of these is active at a time.
+        m_toolbar.add(modeButton(m_addNodesAction, GUI_Mode.ADDNODES, "state"));
+        m_toolbar.add(modeButton(m_addTransitionsAction, GUI_Mode.ADDTRANSITIONS, "transition"));
+        m_toolbar.add(modeButton(m_selectionAction, GUI_Mode.SELECTION, "select"));
+        m_toolbar.add(modeButton(m_eraserAction, GUI_Mode.ERASER, "eraser"));
+        m_toolbar.add(modeButton(m_chooseStartAction, GUI_Mode.CHOOSESTART, "start"));
+        m_toolbar.add(modeButton(m_chooseFinalAction, GUI_Mode.CHOOSEFINAL, "final"));
+        m_toolbar.add(modeButton(m_chooseCurrentStateAction, GUI_Mode.CHOOSECURRENTSTATE, "current"));
+        m_toolbar.add(new FlatButton.Divider());
+
+        // ---- Configuration.
+        m_toolbar.add(button(m_configureAlphabetAction, "alphabet"));
+        m_toolbar.add(new FlatButton.Divider());
+
+        // ---- Run group. These carry labels, being the actions users look for most often.
+        FlatButton run = new FlatButton(m_fastExecuteAction, "run", FlatButton.Style.PRIMARY, true);
+        run.setIconSize(TOOLBAR_ICON_SIZE);
+        m_toolbar.add(run);
+
+        FlatButton step = new FlatButton(m_stepAction, "step", FlatButton.Style.TOOL, true);
+        step.setIconSize(TOOLBAR_ICON_SIZE);
+        m_toolbar.add(step);
+
+        m_toolbar.add(button(m_pauseExecutionAction, "pause"));
+
+        FlatButton stop = new FlatButton(m_stopMachineAction, "stop", FlatButton.Style.TOOL, true);
+        stop.setIconSize(TOOLBAR_ICON_SIZE);
+        m_toolbar.add(stop);
+
+        m_toolbar.add(button(m_validateAction, "validate"));
+
+        // ---- Speed. Exposed here as well as in the menu, since it governs what the run button does.
+        m_toolbar.add(new FlatButton.Divider());
+        m_toolbar.add(createSpeedSelector());
+
+        // Default mode
+        setUIMode(GUI_Mode.ADDNODES);
+
+        return m_toolbar;
+    }
+
+    /**
+     * Build an icon-only toolbar button.
+     * @param act The action the button performs.
+     * @param iconName The name of the icon to render.
+     * @return The button.
+     */
+    private FlatButton button(Action act, String iconName)
+    {
+        FlatButton b = new FlatButton(act, iconName, FlatButton.Style.TOOL, false);
+        b.setIconSize(TOOLBAR_ICON_SIZE);
+        return b;
+    }
+
+    /**
+     * Build a toolbar button which selects one of the drawing tools.
+     * @param act The action the button performs.
+     * @param mode The mode the button selects.
+     * @param iconName The name of the icon to render.
+     * @return The button.
+     */
+    private GUIModeButton modeButton(Action act, GUI_Mode mode, String iconName)
+    {
+        GUIModeButton b = new GUIModeButton(act, mode, iconName);
+        b.setIconSize(TOOLBAR_ICON_SIZE);
+        m_toolbarButtons.add(b);
+        return b;
+    }
+
+    /**
+     * Build the execution speed selector. Exposed here as well as in the Machine menu; the two are
+     * kept in step by routing both through the same actions.
+     * @return The selector.
+     */
+    private JComponent createSpeedSelector()
+    {
+        m_speedSelector = new JComboBox<String>(new String[]
+                { "Slow", "Medium", "Fast", "Super fast", "Ultra fast" });
+        m_speedSelector.setFocusable(false);
+        m_speedSelector.setToolTipText("How fast the machine steps while running");
+        m_speedSelector.setSelectedIndex(2);
+        m_speedSelector.setMaximumRowCount(5);
+        m_speedSelector.addActionListener(new ActionListener()
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                switch (m_speedSelector.getSelectedIndex())
                 {
-                    machineMenu.show(e.getComponent(), 
-                            newMachineToolBarButton.getX() - newMachineToolBarButton.getWidth() / 2, 
-                            newMachineToolBarButton.getY() + newMachineToolBarButton.getHeight());
+                    case 0: m_slowExecuteSpeedAction.actionPerformed(e); break;
+                    case 1: m_mediumExecuteSpeedAction.actionPerformed(e); break;
+                    case 2: m_fastExecuteSpeedAction.actionPerformed(e); break;
+                    case 3: m_superFastExecuteSpeedAction.actionPerformed(e); break;
+                    default: m_ultraFastExecuteSpeedAction.actionPerformed(e); break;
                 }
             }
         });
-        newMachineToolBarButton.setFocusable(false);
-        newMachineToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        newMachineToolBarButton.setText("");
-        
-        JButton openMachineToolBarButton = new JButton(m_openMachineAction);
-        openMachineToolBarButton.setFocusable(false);
-        openMachineToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        openMachineToolBarButton.setText("");
-        
-        JButton saveMachineToolBarButton = new JButton(m_saveMachineAction);
-        saveMachineToolBarButton.setFocusable(false);
-        saveMachineToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        saveMachineToolBarButton.setText("");
 
-        // Tape
-        JButton newTapeToolBarButton = new JButton(m_newTapeAction);
-        newTapeToolBarButton.setFocusable(false);
-        newTapeToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        newTapeToolBarButton.setText("");
-        
-        JButton openTapeToolBarButton = new JButton(m_openTapeAction);
-        openTapeToolBarButton.setFocusable(false);
-        openTapeToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        openTapeToolBarButton.setText("");
-        
-        JButton saveTapeToolBarButton = new JButton(m_saveTapeAction);
-        saveTapeToolBarButton.setFocusable(false);
-        saveTapeToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        saveTapeToolBarButton.setText("");
-
-        // Edit       
-        JButton cutToolBarButton = new JButton(m_cutAction);
-        cutToolBarButton.setFocusable(false);
-        cutToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        cutToolBarButton.setText("");
-        
-        JButton copyToolBarButton = new JButton(m_copyAction);
-        copyToolBarButton.setFocusable(false);
-        copyToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        copyToolBarButton.setText("");
-        
-        JButton pasteToolBarButton = new JButton(m_pasteAction);
-        pasteToolBarButton.setFocusable(false);
-        pasteToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        pasteToolBarButton.setText("");
-        
-        JButton deleteToolBarButton = new JButton(m_deleteAction);
-        deleteToolBarButton.setFocusable(false);
-        deleteToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        deleteToolBarButton.setText("");
-        
-        m_undoToolBarButton = new JButton(m_undoAction);
-        m_undoToolBarButton.setFocusable(false);
-        m_undoToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        m_undoToolBarButton.setText("");
-        
-        m_redoToolBarButton = new JButton(m_redoAction);
-        m_redoToolBarButton.setFocusable(false);
-        m_redoToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        m_redoToolBarButton.setText("");
-               
-        // Configuration
-        JButton configureAlphabetToolBarButton = new JButton(m_configureAlphabetAction);
-        configureAlphabetToolBarButton.setFocusable(false);
-        configureAlphabetToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        configureAlphabetToolBarButton.setText("");
-       
-        // GUI mode
-        GUIModeButton addNodesToolBarButton = new GUIModeButton(m_addNodesAction, GUI_Mode.ADDNODES);
-        m_toolbarButtons.add(addNodesToolBarButton);
-        
-        GUIModeButton addTransitionsToolBarButton = new GUIModeButton(m_addTransitionsAction, GUI_Mode.ADDTRANSITIONS);
-        m_toolbarButtons.add(addTransitionsToolBarButton);
-        
-        GUIModeButton selectionToolBarButton = new GUIModeButton(m_selectionAction,GUI_Mode.SELECTION);
-        m_toolbarButtons.add(selectionToolBarButton);
-        
-        GUIModeButton eraserToolBarButton = new GUIModeButton(m_eraserAction, GUI_Mode.ERASER);
-        m_toolbarButtons.add(eraserToolBarButton);
-        
-        GUIModeButton startStatesToolBarButton = new GUIModeButton(m_chooseStartAction, GUI_Mode.CHOOSESTART);
-        m_toolbarButtons.add(startStatesToolBarButton);
-        
-        GUIModeButton finalStatesToolBarButton = new GUIModeButton(m_chooseFinalAction, GUI_Mode.CHOOSEFINAL);
-        m_toolbarButtons.add(finalStatesToolBarButton);
-        
-        GUIModeButton chooseCurrentStateToolBarButton = new GUIModeButton(m_chooseCurrentStateAction, GUI_Mode.CHOOSECURRENTSTATE);
-        m_toolbarButtons.add(chooseCurrentStateToolBarButton);
- 
-        // Machine
-        JButton validateToolBarButton = new JButton(m_validateAction);
-        validateToolBarButton.setFocusable(false);
-        validateToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        validateToolBarButton.setText("");
-
-        JButton stepToolBarButton = new JButton(m_stepAction);
-        stepToolBarButton.setFocusable(false);
-        stepToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        stepToolBarButton.setText("");
-        
-        JButton resetMachineToolBarButton = new JButton(m_stopMachineAction);
-        resetMachineToolBarButton.setFocusable(false);
-        resetMachineToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        resetMachineToolBarButton.setText("");
-
-        JButton fastExecute = new JButton(m_fastExecuteAction);
-        fastExecute.setFocusable(false);
-        fastExecute.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        fastExecute.setText("");
-        
-        JButton stopExecutionToolBarButton = new JButton(m_pauseExecutionAction);
-        stopExecutionToolBarButton.setFocusable(false);
-        stopExecutionToolBarButton.setBorder(BorderFactory.createBevelBorder(BevelBorder.RAISED));
-        stopExecutionToolBarButton.setText("");
-
-        // Attach everything to the correct toolbars
-        returner[0] = new JToolBar("File/Edit/Configure");
-        returner[0].setRollover(true);
-        returner[0].add(newMachineToolBarButton);
-        returner[0].add(openMachineToolBarButton);
-        returner[0].add(saveMachineToolBarButton);
-        returner[0].add(newTapeToolBarButton);
-        returner[0].add(openTapeToolBarButton);
-        returner[0].add(saveTapeToolBarButton);
-        returner[0].add(cutToolBarButton);
-        returner[0].add(copyToolBarButton);
-        returner[0].add(pasteToolBarButton);
-        returner[0].add(deleteToolBarButton);
-        returner[0].add(m_undoToolBarButton);
-        returner[0].add(m_redoToolBarButton);
-        returner[0].add(configureAlphabetToolBarButton);
-
-        returner[1] = new JToolBar("Mode");
-        returner[1].setRollover(true);
-        returner[1].add(addNodesToolBarButton);
-        returner[1].add(addTransitionsToolBarButton);
-        returner[1].add(selectionToolBarButton);
-        returner[1].add(eraserToolBarButton);
-        returner[1].add(startStatesToolBarButton);
-        returner[1].add(finalStatesToolBarButton);
-        returner[1].add(chooseCurrentStateToolBarButton);
-        
-        returner[2] = new JToolBar("Machine");
-        returner[2].setRollover(true);
-        returner[2].add(validateToolBarButton);
-        returner[2].add(stepToolBarButton);
-        returner[2].add(fastExecute);
-        returner[2].add(stopExecutionToolBarButton);
-        returner[2].add(resetMachineToolBarButton);
-       
-        // Default mode
-        setUIMode(GUI_Mode.ADDNODES);
-        
-        return returner;
+        JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        wrapper.setOpaque(false);
+        JLabel caption = new JLabel("Speed");
+        caption.setFont(Theme.ui(Font.PLAIN, 12));
+        caption.setForeground(Theme.palette().textMuted);
+        wrapper.add(caption);
+        wrapper.add(m_speedSelector);
+        return wrapper;
     }
    
     /**
-     * Creates a new window displaying a machine.
+     * Creates a new document displaying a machine.
      * @param gfxPanel The underlying graphics panel.
-     * @return A frame containing the graphics panel.
+     * @return A document containing the graphics panel.
      */
     public MachineInternalFrame newMachineWindow(MachineGraphicsPanel gfxPanel)
     {
         gfxPanel.setUIMode(m_currentMode);
-        final MachineInternalFrame returner = new MachineInternalFrame(gfxPanel, ++m_windowCount);
+        MachineInternalFrame returner = new MachineInternalFrame(gfxPanel, ++m_windowCount);
         gfxPanel.setFrame(returner);
         gfxPanel.setPreferredSize(new Dimension(MACHINE_CANVAS_SIZE_X, MACHINE_CANVAS_SIZE_Y));
-        returner.setSize(new Dimension(640, 480));
-        Point2D loc = nextWindowLocation();
-        returner.setLocation((int)loc.getX(), (int)loc.getY());
+
         JScrollPane scroller = new JScrollPane(gfxPanel);
-        scroller.setPreferredSize(new Dimension(300, 250));
-        scroller.revalidate();
-        returner.add(scroller);
+        scroller.setBorder(BorderFactory.createEmptyBorder());
+        scroller.getVerticalScrollBar().setUnitIncrement(16);
+        scroller.getHorizontalScrollBar().setUnitIncrement(16);
+        returner.add(scroller, BorderLayout.CENTER);
         returner.setScrollPane(scroller);
-        
-        returner.setVisible(true);
-        returner.setLayer(MACHINE_WINDOW_LAYER);
-        returner.moveToFront();
-        returner.setDefaultCloseOperation(JInternalFrame.DO_NOTHING_ON_CLOSE);
-        
-        returner.addInternalFrameListener(new InternalFrameAdapter()
-        {
-            public void internalFrameClosed(InternalFrameEvent e)
-            {
-                handleLostFocus();
-            }
-            
-            public void internalFrameClosing(InternalFrameEvent e)
-            {
-                userConfirmSaveModifiedThenClose(returner);
-            }
-            
-            public void internalFrameActivated(InternalFrameEvent e)
-            {
-                setEnabledActionsThatRequireAMachine(true);
-            }
-        });
-        
+        returner.updateTitle();
+
         return returner;
     }
 
     /**
-     * Add an internal frame to the window. 
-     * @param frame The frame to add.
+     * Open a document as a tab, or bring its existing tab to the front if it is already open.
+     * @param frame The document to open.
      */
-    public void addFrame(JInternalFrame frame)
+    public void addFrame(MachineInternalFrame frame)
     {
-        // Unselect any existing frame
-        JInternalFrame currentFrame = m_desktopPane.getSelectedFrame();
-        if (currentFrame != null)
+        int existing = m_tabs.indexOfComponent(frame);
+        if (existing >= 0)
         {
-            try { currentFrame.setSelected(false); }
-            catch (PropertyVetoException e) { }
+            m_tabs.setSelectedIndex(existing);
+            return;
         }
 
-        // Add and select
-        m_desktopPane.add(frame);
-        m_desktopPane.setSelectedFrame(frame);
-        m_desktopPane.getDesktopManager().activateFrame(frame);
-        frame.setVisible(true);
-        try { frame.setSelected(true); }
-        catch (PropertyVetoException e) { }
+        // The welcome panel occupies the document area while nothing is open.
+        if (m_tabs.getTabCount() == 0)
+        {
+            m_documentArea.removeAll();
+            m_documentArea.add(m_tabs, BorderLayout.CENTER);
+            m_documentArea.revalidate();
+            m_documentArea.repaint();
+        }
 
+        m_tabs.addDocument(frame, new ActionListener()
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                userConfirmSaveModifiedThenClose((MachineInternalFrame)e.getSource());
+            }
+        });
+
+        setEnabledActionsThatRequireAMachine(true);
+        updateUndoActions();
+        refreshStatus();
     }
-    
+
     /**
-     * Remove an internal frame from the window.
-     * @param frame The frame to remove.
+     * Close a document, removing its tab. When the last document closes, the welcome panel returns.
+     * @param frame The document to remove.
      */
     public void removeFrame(MachineInternalFrame frame)
     {
-        frame.dispose();
-        // Is this necessary?
-        m_desktopPane.remove(frame);
-    }
-   
-    /**
-     * Compute the next location to place a new window.
-     * @return The next location to place a new window.
-     */
-    private Point2D.Float nextWindowLocation()
-    {
-        int x = m_lastNewWindowLocX + m_windowLocStepSize;
-        int y = m_lastNewWindowLocY + m_windowLocStepSize;
-        
-        if (x > maxHorizontalRatioForNewWindowLoc * this.getWidth())
+        int index = m_tabs.indexOfComponent(frame);
+        if (index >= 0)
         {
-            x %= maxHorizontalRatioForNewWindowLoc * this.getWidth();
-            y = x;
-            
-            m_windowLocStepSize = minDistanceForNewWindowLoc + myRandom.nextInt(3)
-                * windowLocRandomStepSize;
+            m_tabs.removeTabAt(index);
         }
-        
-        if (y > maxHorizontalRatioForNewWindowLoc * this.getWidth())
+
+        if (m_tabs.getTabCount() == 0)
         {
-            y %= maxHorizontalRatioForNewWindowLoc * this.getWidth();
-            x = y;
-            
-            m_windowLocStepSize = minDistanceForNewWindowLoc + myRandom.nextInt(3)
-                * windowLocRandomStepSize;
+            m_documentArea.removeAll();
+            m_documentArea.add(m_welcome, BorderLayout.CENTER);
+            m_documentArea.revalidate();
+            m_documentArea.repaint();
         }
-        m_lastNewWindowLocX = x;
-        m_lastNewWindowLocY = y;
-        
-        return new Point2D.Float((float)x, (float)y);
+
+        frame.fireClosed();
+        handleLostFocus();
     }
     
     /** 
@@ -907,24 +1026,25 @@ public class MainWindow extends JFrame
     private boolean userConfirmSaveModifiedThenClose(MachineInternalFrame iFrame)
     {
         MachineGraphicsPanel gfxPanel = iFrame.getGfxPanel();
-        iFrame.moveToFront();
+
+        // Bring the machine being closed to the front, so the user can see what they are answering
+        // about.
+        int index = m_tabs.indexOfComponent(iFrame);
+        if (index >= 0)
+        {
+            m_tabs.setSelectedIndex(index);
+        }
+
         if (gfxPanel.isModifiedSinceSave())
         {
-            // Get the title of the frame, including the machine type
-            String name = iFrame.getTitle();
-            if (name.startsWith("* "))
-            {
-                name = name.substring(2);
-            }
-            
-            int result = JOptionPane.showConfirmDialog(null, 
-                    String.format("The machine '%s' is unsaved. Do you want to save it?", name),
-                    "Closing window", JOptionPane.YES_NO_CANCEL_OPTION);
+            int result = JOptionPane.showConfirmDialog(this,
+                    String.format("The machine '%s' has unsaved changes. Save before closing?",
+                        iFrame.getTitle()),
+                    "Close Machine", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (result == JOptionPane.YES_OPTION)
             {
                 Machine machine = gfxPanel.getSimulator().getMachine();
                 File outFile = gfxPanel.getFile();
-                boolean saveSuccessful = false;
                 if (outFile == null)
                 {
                     outFile = chooseSaveFile(m_fcMachine, "Save Machine", gfxPanel.getMachineExt());
@@ -943,6 +1063,7 @@ public class MainWindow extends JFrame
                 }
                 catch (Exception e)
                 {
+                    m_console.logError("Could not save %s: %s", iFrame.getTitle(), e.getMessage());
                     return false;
                 }
             }
@@ -960,7 +1081,7 @@ public class MainWindow extends JFrame
             return true;
         }
     }
-    
+
     /**
      * When there is no focus owner, the focus needs to be redirected to a valid component so that
      * we can trap keyboard events. This method finds the best component to give the focus, and
@@ -968,45 +1089,23 @@ public class MainWindow extends JFrame
      */
     public void handleLostFocus()
     {
-        if (m_desktopPane != null)
+        if (m_tabs == null)
         {
-            JInternalFrame selected = m_desktopPane.getSelectedFrame();
-
-            JInternalFrame[] frames = m_desktopPane.getAllFrames();
-            ArrayList<JInternalFrame> visibleFrames = new ArrayList<JInternalFrame>();
-            for (JInternalFrame fr : frames)
-            {
-                if (fr.isVisible())
-                {
-                    visibleFrames.add(fr);
-                }
-            }
-            if (visibleFrames.size() == 0)
-            {
-                m_desktopPane.requestFocusInWindow();
-            }
-            else
-            {
-                JInternalFrame frontMost = visibleFrames.get(0);
-                
-                for (JInternalFrame fr : visibleFrames)
-                {
-                    if (m_desktopPane.getIndexOf(fr) < m_desktopPane.getIndexOf(frontMost))
-                    {
-                        frontMost = fr;
-                    }
-                }
-                m_desktopPane.setSelectedFrame(frontMost);
-                try { frontMost.setSelected(true); }
-                catch (Exception e) { }
-            }
+            return;
         }
-        
-        if (m_desktopPane.getSelectedFrame() == null)
+
+        if (m_tabs.getTabCount() == 0)
         {
+            m_documentArea.requestFocusInWindow();
             setEnabledActionsThatRequireAMachine(false);
         }
+        else if (m_tabs.getSelectedIndex() < 0)
+        {
+            m_tabs.setSelectedIndex(0);
+        }
+
         updateUndoActions();
+        refreshStatus();
     }
     
     /** 
@@ -1099,28 +1198,15 @@ public class MainWindow extends JFrame
      */
     public void updateAllSimulators()
     {
-        if (m_desktopPane == null)
+        for (MachineInternalFrame doc : getOpenDocuments())
         {
-            return;
-        }
-        JInternalFrame[] gfxFrames = m_desktopPane.getAllFramesInLayer(MACHINE_WINDOW_LAYER);
-        for (JInternalFrame frame : gfxFrames)
-        {
-            try
+            MachineGraphicsPanel panel = doc.getGfxPanel();
+            if (panel != null)
             {
-                MachineInternalFrame iFrame = (MachineInternalFrame)frame;
-                MachineGraphicsPanel panel = iFrame.getGfxPanel();
-                if (panel != null)
-                {
-                    panel.repaint();
-                }
-            }
-            catch (ClassCastException e)
-            {
-                // Wrong window type ignore it
-                continue;
+                panel.repaint();
             }
         }
+        refreshStatus();
     }
     
     /**
@@ -1243,29 +1329,17 @@ public class MainWindow extends JFrame
     {
         m_editingEnabled = isEnabled;
         m_keyboardEnabled = isEnabled;
-        if (m_desktopPane == null)
+
+        for (MachineInternalFrame doc : getOpenDocuments())
         {
-            return; // Shouldnt happen.
+            doc.getGfxPanel().setEditingEnabled(isEnabled);
         }
-        
-        for (JInternalFrame f : m_desktopPane.getAllFrames())
-        {
-            try
-            {
-                MachineInternalFrame iFrame = (MachineInternalFrame)f;
-                MachineGraphicsPanel gfxPanel = iFrame.getGfxPanel();
-                gfxPanel.setEditingEnabled(isEnabled);
-                iFrame.setClosable(isEnabled);
-                m_exitAction.setEnabled(isEnabled); 
-            }
-            catch (ClassCastException e)
-            {
-                // Wrong window type
-                continue;
-            }
-        }
+        m_exitAction.setEnabled(isEnabled);
+        m_closeMachineAction.setEnabled(isEnabled);
+
         setEditingActionsEnabledState(isEnabled);
         m_tapeDispController.setEditingEnabled(isEnabled);
+        refreshStatus();
     }
  
     /**
@@ -1273,38 +1347,37 @@ public class MainWindow extends JFrame
      */
     public void userRequestToExit()
     {
-        if (m_desktopPane == null)
+        if (m_tabs == null)
         {
             System.exit(0);
         }
         if (!m_editingEnabled)
         {
-            // TODO: Can't close when running, somehow grey out the close button or something
-            return;
+            // A machine is running; stop it before allowing the program to close, rather than
+            // silently ignoring the request as this previously did.
+            int result = JOptionPane.showConfirmDialog(this,
+                    "A machine is still running. Stop it and exit?",
+                    "Exit", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (result != JOptionPane.OK_OPTION)
+            {
+                return;
+            }
+            stopExecution();
+            setEditingEnabled(true);
         }
 
-        for (JInternalFrame f : m_desktopPane.getAllFrames())
+        for (MachineInternalFrame doc : getOpenDocuments())
         {
-            try
+            if (doc.getGfxPanel().isModifiedSinceSave())
             {
-                MachineInternalFrame iFrame = (MachineInternalFrame)f;
-                MachineGraphicsPanel panel = iFrame.getGfxPanel();
-                if (panel.isModifiedSinceSave())
+                if (!userConfirmSaveModifiedThenClose(doc))
                 {
-                    if (!userConfirmSaveModifiedThenClose(iFrame))
-                    {
-                        return;
-                    }
-                }
-                else
-                {
-                    iFrame.dispose();
+                    return;
                 }
             }
-            catch (ClassCastException e2)
+            else
             {
-                // Wrong window type
-                continue;
+                doc.dispose();
             }
         }
         System.exit(0);
@@ -1480,11 +1553,11 @@ public class MainWindow extends JFrame
         /**
          * Creates a new instance of MenuAction
          * @param text A name for the action.
-         * @param icon A image for the action.
+         * @param icon An image for the action.
          * @param desc A description of the action.
          * @param accel The accelerator key for this action. Null if no accelerator.
          */
-        public MenuAction(String text, ImageIcon icon, String desc, KeyStroke accel)
+        public MenuAction(String text, Icon icon, String desc, KeyStroke accel)
         {
             super(text);
             putValue(SMALL_ICON, icon);
@@ -1506,7 +1579,7 @@ public class MainWindow extends JFrame
          *                    Setting this to true creates a save-as action, while setting it to
          *                    false creates a save action.
          */
-        public SaveMachineAction(String text, ImageIcon icon, boolean forceDialog)
+        public SaveMachineAction(String text, Icon icon, boolean forceDialog)
         {
             super(text, icon, null, KeyStroke.getKeyStroke(KeyEvent.VK_S, KeyEvent.CTRL_DOWN_MASK));
             m_force = forceDialog;
@@ -1574,7 +1647,7 @@ public class MainWindow extends JFrame
          *                    Setting this to true creates a save-as action, while setting it to
          *                    false creates a save action.
          */
-        public SaveTapeAction(String text, ImageIcon icon, boolean forceDialog)
+        public SaveTapeAction(String text, Icon icon, boolean forceDialog)
         {
             super(text, icon, null, KeyStroke.getKeyStroke(KeyEvent.VK_S, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK));
             m_force = forceDialog;
@@ -1632,7 +1705,7 @@ public class MainWindow extends JFrame
          * @param icon Icon for the action.
          * @param keyShortcut Shortcut associated with the action.
          */
-        public GUI_ModeSelectionAction(String text, GUI_Mode mode, ImageIcon icon, KeyStroke keyShortcut)
+        public GUI_ModeSelectionAction(String text, GUI_Mode mode, Icon icon, KeyStroke keyShortcut)
         {
             super(text, icon, null, keyShortcut);
             m_mode = mode;
@@ -1702,42 +1775,6 @@ public class MainWindow extends JFrame
         private int m_delay;
     }
 
-    /** 
-     * This class is designed to intercept mouse events in order to make a window modal.
-     * It is borrowed from the Sun developer tech tips article at
-     * http://java.sun.com/developer/JDCTechTips/2001/tt1220.html .
-     */
-    class ModalAdapter extends InternalFrameAdapter
-    {
-        /**
-         * Create an instance of ModalAdapter.
-         * @param glass The underlying component.
-         */
-        public ModalAdapter(Component glass)
-        {
-            this.glass = glass;
-
-            // Associate dummy mouse listeners
-            // Otherwise mouse events pass through
-            MouseInputAdapter adapter = new MouseInputAdapter() { };
-            glass.addMouseListener(adapter);
-            glass.addMouseMotionListener(adapter);
-        }
-
-        /**
-         * Set the underlying component to be invisible when this closes.
-         * @param e The generating event.
-         */
-        public void internalFrameClosed(InternalFrameEvent e)
-        {
-            glass.setVisible(false);
-        }
- 
-        /**
-         * Underlying component
-         */
-        private Component glass;
-    }
    
     /**
      * Singleton instance of MainWindow.
@@ -1795,24 +1832,69 @@ public class MainWindow extends JFrame
     private byte[] m_copiedData = null;
 
     /**
-     * X ordinate of the last new frame.
-     */
-    private int m_lastNewWindowLocX = 0;
-
-    /**
-     * Y ordinate of the last new frame.
-     */
-    private int m_lastNewWindowLocY = 0;
-
-    /**
-     * Distance between new frames.
-     */
-    private int m_windowLocStepSize = minDistanceForNewWindowLoc;
-    
-    /**
      * List of buttons which have an associated GUI mode and action.
      */
     private ArrayList<GUIModeButton> m_toolbarButtons;
+
+    /**
+     * The toolbar strip.
+     */
+    private JPanel m_toolbar;
+
+    /**
+     * Selector for the execution speed.
+     */
+    private JComboBox<String> m_speedSelector;
+
+    /**
+     * The status bar along the bottom of the window.
+     */
+    private StatusBar m_statusBar;
+
+    /**
+     * The panel shown when no machine is open.
+     */
+    private WelcomePanel m_welcome;
+
+    /**
+     * Container holding either the tabs or the welcome panel.
+     */
+    private JPanel m_documentArea;
+
+    /**
+     * Split pane dividing the document area from the console.
+     */
+    private JSplitPane m_mainSplit;
+
+    /**
+     * Position of the console divider, remembered so the console can be hidden and restored.
+     */
+    private int m_consoleDividerLocation = -1;
+
+    /**
+     * Menu item reflecting whether the light palette is in force.
+     */
+    private JRadioButtonMenuItem m_lightThemeItem;
+
+    /**
+     * Menu item reflecting whether the dark palette is in force.
+     */
+    private JRadioButtonMenuItem m_darkThemeItem;
+
+    /**
+     * Menu item reflecting whether the console is shown.
+     */
+    private JCheckBoxMenuItem m_showConsoleItem;
+
+    /**
+     * Menu item reflecting whether the status bar is shown.
+     */
+    private JCheckBoxMenuItem m_showStatusBarItem;
+
+    /**
+     * Menu item reflecting whether the tape is shown.
+     */
+    private JCheckBoxMenuItem m_showTapeItem;
 
     /**
      * Tape display panel.
@@ -1832,27 +1914,27 @@ public class MainWindow extends JFrame
     /**
      * Toolbar button for undoing an action.
      */
-    private JButton m_undoToolBarButton;
+    private FlatButton m_undoToolBarButton;
 
     /**
      * Toolbar button for redoing an action.
      */
-    private JButton m_redoToolBarButton;
+    private FlatButton m_redoToolBarButton;
 
     /**
-     * Desktop pane for the window, containing all frames.
+     * Tabbed pane for the window, containing all open machines.
      */
-    private JDesktopPane m_desktopPane;
+    private MachineTabPane m_tabs;
 
     /**
-     * Frame for selecting the current alphabet.
+     * Dialog for selecting the current alphabet.
      */
-    private AlphabetSelectorInternalFrame m_asif;
+    private AlphabetSelectorDialog m_alphabetDialog;
 
     /**
-     * Frame for displaying help information as HTML.
+     * Window for displaying help information as HTML.
      */
-    private HelpDisplayer m_helpDisp;
+    private HelpDialog m_helpDisp;
 
     /**
      * Frame for displaying a console window for logging information.
@@ -1863,11 +1945,11 @@ public class MainWindow extends JFrame
      * Action for creating a new Turing Machine.
      */
     public final Action m_newTuringMachineAction = 
-        new MenuAction("New Turing Machine", Global.loadIcon("newMachine.png"), null, null)
+        new MenuAction("New Turing Machine", Icons.get("new-machine", MENU_ICON_SIZE), null, null)
         {
             public void actionPerformed(ActionEvent e)
             {
-                if (m_desktopPane != null)
+                if (m_tabs != null)
                 {
                     TMGraphicsPanel panel = new TMGraphicsPanel(new TM_Machine(), m_tape, null);
                     MachineInternalFrame frame = newMachineWindow(panel);
@@ -1881,11 +1963,11 @@ public class MainWindow extends JFrame
      * Action for creating a new DFSA.
      */
     public final Action m_newDFSAAction = 
-        new MenuAction("New DFSA", Global.loadIcon("newMachine.png"), null, null)
+        new MenuAction("New DFSA", Icons.get("dfsa", MENU_ICON_SIZE), null, null)
         {
             public void actionPerformed(ActionEvent e)
             {
-                if (m_desktopPane != null)
+                if (m_tabs != null)
                 {
                     addFrame(newMachineWindow(new DFSAGraphicsPanel(new DFSA_Machine(), m_tape, null)));
                 }
@@ -1896,7 +1978,7 @@ public class MainWindow extends JFrame
      * Action for opening a machine.
      */
     public final Action m_openMachineAction = 
-        new MenuAction("Open Machine", Global.loadIcon("openMachine.png"), null, 
+        new MenuAction("Open Machine", Icons.get("open", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_O, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -1912,8 +1994,6 @@ public class MainWindow extends JFrame
                 {
                     Machine machine = Machine.loadMachine(inFile);
 
-                    // TODO: Can we make this nicer?
-                    JInternalFrame iFrame = null;
                     if (machine instanceof TM_Machine)
                     {
                         TMGraphicsPanel panel = new TMGraphicsPanel((TM_Machine)machine, m_tape, inFile);
@@ -1940,19 +2020,19 @@ public class MainWindow extends JFrame
      * Action for saving a machine to an associated file.
      */
     public final Action m_saveMachineAction = 
-        new SaveMachineAction("Save Machine", Global.loadIcon("saveMachine.png"), false);
+        new SaveMachineAction("Save Machine", Icons.get("save", MENU_ICON_SIZE), false);
 
     /**
      * Action for saving a machine to a selected file.
      */
     public final Action m_saveMachineAsAction = 
-        new SaveMachineAction("Save Machine As", Global.loadIcon("emptyIcon.png"), true);
+        new SaveMachineAction("Save Machine As", null, true);
 
     /**
      * Action for creating a new tape.
      */
     public final Action m_newTapeAction = 
-        new MenuAction("New Tape", Global.loadIcon("newTape.png"), null, 
+        new MenuAction("New Tape", Icons.get("new-tape", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_N, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -1978,7 +2058,7 @@ public class MainWindow extends JFrame
      * Action for opening a tape.
      */
     public final Action m_openTapeAction = 
-        new MenuAction("Open Tape", Global.loadIcon("openTape.png"), null, 
+        new MenuAction("Open Tape", Icons.get("open-tape", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_O, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2011,19 +2091,36 @@ public class MainWindow extends JFrame
      * Action for saving a tape to an associated file.
      */
     public final Action m_saveTapeAction = 
-        new SaveTapeAction("Save Tape", Global.loadIcon("saveTape.png"), false);
+        new SaveTapeAction("Save Tape", Icons.get("save-tape", MENU_ICON_SIZE), false);
     
     /**
      * Action for saving a tape to a selected file.
      */
     public final Action m_saveTapeAsAction = 
-        new SaveTapeAction("Save Tape As", Global.loadIcon("emptyIcon.png"), true);
+        new SaveTapeAction("Save Tape As", null, true);
+
+    /**
+     * Action for closing the current machine.
+     */
+    public final Action m_closeMachineAction =
+        new MenuAction("Close Machine", null, null,
+                       KeyStroke.getKeyStroke(KeyEvent.VK_W, KeyEvent.CTRL_DOWN_MASK))
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                MachineInternalFrame doc = m_tabs.getSelectedDocument();
+                if (doc != null)
+                {
+                    userConfirmSaveModifiedThenClose(doc);
+                }
+            }
+        };
 
     /**
      * Action for exiting the program.
      */
-    public final Action m_exitAction = 
-        new MenuAction("Exit", Global.loadIcon("emptyIcon.png"), null, null)
+    public final Action m_exitAction =
+        new MenuAction("Exit", null, null, null)
         {
             public void actionPerformed(ActionEvent e)
             {
@@ -2032,10 +2129,87 @@ public class MainWindow extends JFrame
         };
 
     /**
+     * Action for switching to the light palette.
+     */
+    public final Action m_lightThemeAction =
+        new MenuAction("Light", Icons.get("light", MENU_ICON_SIZE), null, null)
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                Theme.set(Theme.LIGHT);
+            }
+        };
+
+    /**
+     * Action for switching to the dark palette.
+     */
+    public final Action m_darkThemeAction =
+        new MenuAction("Dark", Icons.get("dark", MENU_ICON_SIZE), null, null)
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                Theme.set(Theme.DARK);
+            }
+        };
+
+    /**
+     * Action for showing and hiding the console.
+     */
+    public final Action m_toggleConsoleAction =
+        new MenuAction("Console", Icons.get("console", MENU_ICON_SIZE), null,
+                       KeyStroke.getKeyStroke(KeyEvent.VK_J, KeyEvent.CTRL_DOWN_MASK))
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                boolean show = !m_console.isVisible();
+                if (!show)
+                {
+                    m_consoleDividerLocation = m_mainSplit.getDividerLocation();
+                }
+                m_console.setVisible(show);
+                m_mainSplit.setDividerSize(show? 6 : 0);
+                m_mainSplit.resetToPreferredSizes();
+                if (show && m_consoleDividerLocation > 0)
+                {
+                    m_mainSplit.setDividerLocation(m_consoleDividerLocation);
+                }
+                m_showConsoleItem.setSelected(show);
+            }
+        };
+
+    /**
+     * Action for showing and hiding the status bar.
+     */
+    public final Action m_toggleStatusBarAction =
+        new MenuAction("Status Bar", Icons.get("statusbar", MENU_ICON_SIZE), null, null)
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                m_statusBar.setVisible(!m_statusBar.isVisible());
+                m_showStatusBarItem.setSelected(m_statusBar.isVisible());
+                getContentPane().revalidate();
+            }
+        };
+
+    /**
+     * Action for showing and hiding the tape.
+     */
+    public final Action m_toggleTapeAction =
+        new MenuAction("Tape", Icons.get("tape", MENU_ICON_SIZE), null, null)
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                m_tapeDispController.setVisible(!m_tapeDispController.isVisible());
+                m_showTapeItem.setSelected(m_tapeDispController.isVisible());
+                getContentPane().revalidate();
+            }
+        };
+
+    /**
      * Action for undoing a command.
      */
     public final Action m_undoAction = 
-        new MenuAction("Undo", Global.loadIcon("undoIcon.png"), null, 
+        new MenuAction("Undo", Icons.get("undo", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2054,7 +2228,7 @@ public class MainWindow extends JFrame
      * Action for redoing a command
      */
     public final Action m_redoAction = 
-        new MenuAction("Redo", Global.loadIcon("redoIcon.png"), null, 
+        new MenuAction("Redo", Icons.get("redo", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_Y, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2073,7 +2247,7 @@ public class MainWindow extends JFrame
      * Action for cutting selected states and transitions.
      */
     public final Action m_cutAction = 
-        new MenuAction("Cut", Global.loadIcon("cut.png"), null, 
+        new MenuAction("Cut", Icons.get("cut", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_X, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2094,7 +2268,7 @@ public class MainWindow extends JFrame
      * Action for copying selected states and transitions.
      */
     public final Action m_copyAction = 
-        new MenuAction("Copy", Global.loadIcon("copy.png"), null, 
+        new MenuAction("Copy", Icons.get("copy", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_C, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2111,14 +2285,14 @@ public class MainWindow extends JFrame
      * Action for pasting selected states and transitions.
      */
     public final Action m_pasteAction = 
-        new MenuAction("Paste", Global.loadIcon("paste.png"), null, 
+        new MenuAction("Paste", Icons.get("paste", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_V, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
             {   
                 try
                 {
-                    MachineInternalFrame iFrame = (MachineInternalFrame)m_desktopPane.getSelectedFrame();
+                    MachineInternalFrame iFrame = m_tabs.getSelectedDocument();
                     if (m_copiedData == null || iFrame == null)
                     {
                         // Abort
@@ -2155,7 +2329,7 @@ public class MainWindow extends JFrame
      * Action for deleting selected states and transitions.
      */
     public final Action m_deleteAction = 
-        new MenuAction("Delete Selected Items", Global.loadIcon("delete.png"), null, 
+        new MenuAction("Delete Selected Items", Icons.get("delete", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0))
         {
             public void actionPerformed(ActionEvent e)
@@ -2173,55 +2347,55 @@ public class MainWindow extends JFrame
      */
     public final GUI_ModeSelectionAction m_addNodesAction = 
         new GUI_ModeSelectionAction("Add States", GUI_Mode.ADDNODES,
-            Global.loadIcon("state.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F2,0));
+            Icons.get("state", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F2,0));
 
     /**
      * Action associated with ADDTRANSITIONS.
      */
     public final GUI_ModeSelectionAction m_addTransitionsAction = 
         new GUI_ModeSelectionAction("Add Transitions", GUI_Mode.ADDTRANSITIONS,
-            Global.loadIcon("transition.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F3,0));
+            Icons.get("transition", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F3,0));
 
     /**
      * Action associated with SELECTION.
      */
     public final GUI_ModeSelectionAction m_selectionAction = 
         new GUI_ModeSelectionAction("Make Selection", GUI_Mode.SELECTION,
-            Global.loadIcon("selection.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F4,0));
+            Icons.get("select", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F4,0));
 
     /**
      * Action associated with ERASER.
      */
     public final GUI_ModeSelectionAction m_eraserAction = 
         new GUI_ModeSelectionAction("Eraser", GUI_Mode.ERASER, 
-            Global.loadIcon("eraser.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F5,0));
+            Icons.get("eraser", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F5,0));
 
     /**
      * Action associated with CHOOSESTART.
      */
     public final GUI_ModeSelectionAction m_chooseStartAction = 
         new GUI_ModeSelectionAction("Choose Start State", GUI_Mode.CHOOSESTART, 
-            Global.loadIcon("startState.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F6,0));
+            Icons.get("start", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F6,0));
 
     /**
      * Action associated with CHOOSEFINAL.
      */
     public final GUI_ModeSelectionAction m_chooseFinalAction = 
         new GUI_ModeSelectionAction("Choose Final State", GUI_Mode.CHOOSEFINAL,
-            Global.loadIcon("finalState.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F7,0));
+            Icons.get("final", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F7,0));
 
     /**
      * Action associated with CHOOSECURRENTSTATE.
      */
     public final GUI_ModeSelectionAction m_chooseCurrentStateAction = 
         new GUI_ModeSelectionAction("Choose Current State", GUI_Mode.CHOOSECURRENTSTATE,
-            Global.loadIcon("currentState.png"), KeyStroke.getKeyStroke(KeyEvent.VK_F8,0));
+            Icons.get("current", MENU_ICON_SIZE), KeyStroke.getKeyStroke(KeyEvent.VK_F8,0));
 
     /**
      * Action for validating the machine.
      */
     public final Action m_validateAction =
-        new MenuAction("Validate", Global.loadIcon("validate.png"), null,
+        new MenuAction("Validate", Icons.get("validate", MENU_ICON_SIZE), null,
                        KeyStroke.getKeyStroke(KeyEvent.VK_D, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2252,7 +2426,7 @@ public class MainWindow extends JFrame
      * Action for stepping through execution.
      */
     public final Action m_stepAction = 
-        new MenuAction("Step", Global.loadIcon("step.png"), null, 
+        new MenuAction("Step", Icons.get("step", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_T, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2320,6 +2494,7 @@ public class MainWindow extends JFrame
                             "Simulation halted unexpectedly: %s", msg);
                 }
                 repaint();
+                refreshStatus();
             }
         };
 
@@ -2327,7 +2502,7 @@ public class MainWindow extends JFrame
      * Action for starting simulation of the machine.
      */
     public final Action m_fastExecuteAction = 
-        new MenuAction("Execute", Global.loadIcon("fastExecute.png"), null, 
+        new MenuAction("Execute", Icons.get("run", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_E, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2350,7 +2525,7 @@ public class MainWindow extends JFrame
      * Action for pausing simulation of the machine.
      */
     public final Action m_pauseExecutionAction = 
-        new MenuAction("Pause Execution", Global.loadIcon("pause.png"), null, 
+        new MenuAction("Pause Execution", Icons.get("pause", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_P, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2364,7 +2539,7 @@ public class MainWindow extends JFrame
      * Action for stopping a simulation.
      */
     public final Action m_stopMachineAction = 
-        new MenuAction("Stop Execution", Global.loadIcon("stop.png"), null, 
+        new MenuAction("Stop Execution", Icons.get("stop", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_R, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2424,7 +2599,7 @@ public class MainWindow extends JFrame
      * Action for moving the read/write head to the start of the tape.
      */
     public final Action m_headToStartAction = 
-        new MenuAction("Reset Read/Write Head", Global.loadIcon("tapeStart.png"), null, 
+        new MenuAction("Reset Read/Write Head", Icons.get("tape-start", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_M, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e) 
@@ -2439,7 +2614,7 @@ public class MainWindow extends JFrame
      * Action for reloading the tape.
      */
     public final Action m_reloadTapeAction = 
-        new MenuAction("Reload Tape", Global.loadIcon("tapeReload.png"), null, 
+        new MenuAction("Reload Tape", Icons.get("tape-reload", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_L, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e) 
@@ -2487,7 +2662,7 @@ public class MainWindow extends JFrame
      * Action for erasing the tape.
      */
     public final Action m_eraseTapeAction = 
-        new MenuAction("Erase Tape", Global.loadIcon("tapeClear.png"), null, 
+        new MenuAction("Erase Tape", Icons.get("tape-clear", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_B, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e) 
@@ -2512,7 +2687,7 @@ public class MainWindow extends JFrame
      * Action for configuring the alphabet.
      */
     public final Action m_configureAlphabetAction = 
-        new MenuAction("Configure Alphabet", Global.loadIcon("configureAlphabet.png"), null, 
+        new MenuAction("Configure Alphabet", Icons.get("alphabet", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_A, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
@@ -2520,9 +2695,11 @@ public class MainWindow extends JFrame
                 MachineGraphicsPanel panel = getSelectedGraphicsPanel();
                 if (panel != null)
                 {
-                    m_asif.setPanel(panel);
-                    m_asif.show();
-                    getGlassPane().setVisible(true);
+                    if (m_alphabetDialog == null)
+                    {
+                        m_alphabetDialog = new AlphabetSelectorDialog(MainWindow.this);
+                    }
+                    m_alphabetDialog.showFor(panel);
                 }
             }
         };
@@ -2531,26 +2708,18 @@ public class MainWindow extends JFrame
      * Action for displaying help documentation.
      */
     public final Action m_helpAction = 
-        new MenuAction("Help", Global.loadIcon("help.png"), null, 
+        new MenuAction("Help", Icons.get("help", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0))
         {
             public void actionPerformed(ActionEvent e)
             {
                 if (m_helpDisp == null)
                 {
-                    m_helpDisp = new HelpDisplayer();
-                    m_helpDisp.setLayer(60);
+                    m_helpDisp = new HelpDialog(MainWindow.this);
+                    m_helpDisp.setLocationRelativeTo(MainWindow.this);
                 }
-                if (!m_helpDisp.isVisible())
-                {
-                    addFrame(m_helpDisp);
-                }
-                else
-                {
-                    m_helpDisp.moveToFront();
-                    try { m_helpDisp.setSelected(true); }
-                    catch (PropertyVetoException e2) { }
-                }
+                m_helpDisp.setVisible(true);
+                m_helpDisp.toFront();
             }
         };
 
@@ -2558,7 +2727,7 @@ public class MainWindow extends JFrame
      * Action for displaying meta information about the program.
      */
     public final Action m_aboutAction = 
-        new MenuAction("About", Global.loadIcon("tuataraSmall.png"), null, null)
+        new MenuAction("About", Icons.get("machine", MENU_ICON_SIZE), null, null)
         {
             public void actionPerformed(ActionEvent e)
             {

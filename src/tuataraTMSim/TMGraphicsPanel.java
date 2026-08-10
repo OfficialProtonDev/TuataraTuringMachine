@@ -239,9 +239,9 @@ public class TMGraphicsPanel
     public void setFrame(MachineInternalFrame iFrame)
     {
         super.setFrame(iFrame);
-        iFrame.addInternalFrameListener(new InternalFrameAdapter()
+        iFrame.addCloseListener(new Runnable()
         {
-            public void internalFrameClosed(InternalFrameEvent e)
+            public void run()
             {
                 // If we have an empty machine, destroy this frame
                 if (m_parent != null && m_sim.getMachine().getStates().size() == 0)

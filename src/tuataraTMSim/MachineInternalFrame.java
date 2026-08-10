@@ -25,70 +25,39 @@
 
 package tuataraTMSim;
 
-import java.awt.geom.Point2D;
+import java.awt.BorderLayout;
 import java.awt.Rectangle;
+import java.awt.geom.Point2D;
 import java.io.File;
-import javax.swing.event.InternalFrameAdapter;
-import javax.swing.event.InternalFrameEvent;
-import javax.swing.JInternalFrame;
+import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JViewport;
 
-/** 
- * An internal frame containing a panel for displaying a machine.
+/**
+ * A document containing a panel for displaying a machine. One of these becomes one tab in the
+ * main window.
+ *
+ * This was previously a JInternalFrame floating in a JDesktopPane. Machines are now shown as tabs,
+ * but the type deliberately keeps its original name and method signatures, so that the parts of the
+ * program which merely ask a panel for its frame's title -- ExecutionTimerTask, TMGraphicsPanel and
+ * MachineGraphicsPanel -- did not have to change.
  */
-public class MachineInternalFrame extends JInternalFrame
-{ 
-    /** 
+public class MachineInternalFrame extends JPanel
+{
+    /**
      * Creates a new instance of MachineInternalFrame.
      * @param gfxPanel The current graphics panel.
      * @param windowIdx The index of this window, i.e. how many windows have been created before it.
      */
     public MachineInternalFrame(MachineGraphicsPanel gfxPanel, int windowIdx)
     {
-        // Create a window which can be resized, minimized, maximized, and moved.
-        super("untitled", true, true, true, true);
+        super(new BorderLayout());
         m_gfxPanel = gfxPanel;
         m_idx = windowIdx;
-        
-        this.addInternalFrameListener(new InternalFrameAdapter()
-        {
-            public void internalFrameActivated(InternalFrameEvent e)
-            {
-                MainWindow.getInstance().updateUndoActions();
-                MainWindow.getInstance().setEditingActionsEnabledState(true);
-            }
-            
-            public void internalFrameClosed(InternalFrameEvent e)
-            {
-                MainWindow.getInstance().updateUndoActions();
-            }
-
-            public void	internalFrameDeactivated(InternalFrameEvent e)
-            {
-                MainWindow.getInstance().updateUndoActions();
-                m_gfxPanel.deselectSymbol();
-            }
-            
-            public void	internalFrameDeiconified(InternalFrameEvent e)
-            {
-                MainWindow.getInstance().updateUndoActions();
-            }
-            
-            public void	internalFrameIconified(InternalFrameEvent e)
-            {
-                MainWindow.getInstance().updateUndoActions();
-            }
-
-            public void	internalFrameOpened(InternalFrameEvent e) 
-            {
-                MainWindow.getInstance().updateUndoActions();
-                MainWindow.getInstance().setEditingActionsEnabledState(true);
-            }
-        });   
+        m_title = "untitled";
     }
-    
-    /** 
+
+    /**
      * Gets the current graphics panel.
      * @return The current graphics panel
      */
@@ -105,22 +74,51 @@ public class MachineInternalFrame extends JInternalFrame
     {
         return m_idx;
     }
-   
+
+    /**
+     * Get the title of this document, as shown on its tab.
+     * @return The title.
+     */
+    public String getTitle()
+    {
+        return m_title;
+    }
+
+    /**
+     * Set the title of this document, and refresh the tab showing it.
+     * @param title The new title.
+     */
+    public void setTitle(String title)
+    {
+        m_title = title;
+        MainWindow inst = MainWindow.getInstance();
+        if (inst != null)
+        {
+            inst.refreshTab(this);
+        }
+    }
+
+    /**
+     * Determine whether this document has unsaved changes, which the tab marks with a dot.
+     * @return true if the machine has been modified since its last save, false otherwise.
+     */
+    public boolean isModified()
+    {
+        return m_gfxPanel != null && m_gfxPanel.isModifiedSinceSave();
+    }
+
     /**
      * Update the title of the frame to reflect the filename of the underlying machine.
      */
     public void updateTitle()
     {
-        // TODO: Maybe move some of this to MachineGraphicsPanel
-        File file = m_gfxPanel.getFile();
-        setTitle(String.format("%s%s [%s]",
-                    m_gfxPanel.isModifiedSinceSave()? "* " : "",
-                    m_gfxPanel.getFilename(),
-                    m_gfxPanel.getMachineType()));
+        // The modified marker is rendered by the tab itself rather than being baked into the title
+        // with a leading asterisk, as it was when this was a window title.
+        setTitle(String.format("%s [%s]", m_gfxPanel.getFilename(), m_gfxPanel.getMachineType()));
     }
-    
+
     /**
-     * Sets this internal frame's pointer to its scroll pane, but doesnt actually do anything in the
+     * Sets this document's pointer to its scroll pane, but doesnt actually do anything in the
      * way of adding the scroll pane to the component.
      * @param sp The scroll panel to track.
      */
@@ -128,7 +126,7 @@ public class MachineInternalFrame extends JInternalFrame
     {
         m_sp = sp;
     }
-   
+
     /**
      * Get the center of the frame viewport.
      * @return The center of the frame viewport.
@@ -143,7 +141,53 @@ public class MachineInternalFrame extends JInternalFrame
         Rectangle vpRect = vp.getViewRect();
         return new Point2D.Double(vpRect.getCenterX(), vpRect.getCenterY());
     }
-    
+
+    /**
+     * Close this document, removing its tab from the main window.
+     *
+     * Retains the name the JInternalFrame version used, since callers throughout the program invoke
+     * it to close a machine.
+     */
+    public void dispose()
+    {
+        MainWindow inst = MainWindow.getInstance();
+        if (inst != null)
+        {
+            inst.removeFrame(this);
+        }
+    }
+
+    /**
+     * Register a callback to be run once this document has been closed. Replaces the
+     * internalFrameClosed notification the JInternalFrame version provided, which TMGraphicsPanel
+     * relies on to tidy up submachines.
+     * @param r The callback to run.
+     */
+    public void addCloseListener(Runnable r)
+    {
+        m_closeListeners.add(r);
+    }
+
+    /**
+     * Run every registered close callback. Called by the main window once the tab has been removed.
+     */
+    public void fireClosed()
+    {
+        for (Runnable r : m_closeListeners)
+        {
+            r.run();
+        }
+    }
+
+    /**
+     * Determine whether this document is currently open as a tab.
+     * @return true if the document is open, false otherwise.
+     */
+    public boolean isOpen()
+    {
+        return getParent() != null;
+    }
+
     /**
      * The current graphics panel.
      */
@@ -155,7 +199,17 @@ public class MachineInternalFrame extends JInternalFrame
     private int m_idx;
 
     /**
+     * The title of this document.
+     */
+    private String m_title;
+
+    /**
      * The scroll panel to track.
      */
     private JScrollPane m_sp;
+
+    /**
+     * Callbacks to run once this document has been closed.
+     */
+    private java.util.ArrayList<Runnable> m_closeListeners = new java.util.ArrayList<Runnable>();
 }

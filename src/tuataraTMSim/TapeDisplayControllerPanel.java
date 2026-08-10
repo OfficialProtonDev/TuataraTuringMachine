@@ -28,19 +28,23 @@ package tuataraTMSim;
 import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
-import javax.swing.border.*;
 import tuataraTMSim.exceptions.ComputationFailedException;
 
-/** 
+/**
  * A panel containing a tape display panel and some buttons to move the read/write head.
  */
 public class TapeDisplayControllerPanel extends JPanel
 {
     /**
-     * Number of pixels used for padding between subcomponents.
+     * Number of pixels used for padding around the strip.
      */
-    protected static final int PADDING = 0;
-    
+    protected static final int PADDING = 6;
+
+    /**
+     * Size the control icons are rendered at.
+     */
+    protected static final int ICON_SIZE = 17;
+
     /**
      * Creates a new instance of TapeDisplayControllerPanel.
      * @param tapeDP The tape display panel.
@@ -48,14 +52,21 @@ public class TapeDisplayControllerPanel extends JPanel
      * @param eraseTapeAction Action used to erase the entire tape.
      * @param reloadAction Action used to reload the tape.
      */
-    public TapeDisplayControllerPanel(TapeDisplayPanel tapeDP, Action headToStartAction, 
+    public TapeDisplayControllerPanel(TapeDisplayPanel tapeDP, Action headToStartAction,
                                       Action eraseTapeAction, Action reloadAction)
     {
         m_tapeDP = tapeDP;
         initComponents(headToStartAction, eraseTapeAction, reloadAction);
-   }
-    
-    /** 
+        Theme.onChange(new Runnable()
+        {
+            public void run()
+            {
+                applyTheme();
+            }
+        });
+    }
+
+    /**
      * Initialization.
      * @param headToStartAction Action used to move the read/write head to the start.
      * @param eraseTapeAction Action used to erase the entire tape.
@@ -63,13 +74,12 @@ public class TapeDisplayControllerPanel extends JPanel
      */
     public void initComponents(Action headToStartAction, Action eraseTapeAction, Action reloadAction)
     {
-        setBackground(Color.WHITE);
-        setFocusable(false); // TODO: make this work
+        setFocusable(false);
+        setLayout(new BorderLayout());
+        setBorder(BorderFactory.createEmptyBorder(PADDING, PADDING, PADDING, PADDING));
 
         // NOTE: This is attached to all subcomponents so that when the mouse is clicked over this
-        //       component, we receive the focus of the keyboard. We could accomplish something
-        //       similar by using a glass pane, but since there are so few components, this was a
-        //       simpler solution.
+        //       component, we receive the focus of the keyboard.
         MouseListener onClick = new MouseAdapter()
         {
             public void mousePressed(MouseEvent e)
@@ -84,95 +94,107 @@ public class TapeDisplayControllerPanel extends JPanel
 
         m_tapeDP.addMouseListener(onClick);
 
-        Border currentBorder = getBorder();
-        Border innerBorder = BorderFactory.createEmptyBorder(PADDING,PADDING,PADDING,PADDING);
-        setBorder(BorderFactory.createCompoundBorder(currentBorder, innerBorder));
-        
-        java.net.URL imageURL = MainWindow.class.getResource("images/tapeLeft.png");
-        ImageIcon tapeLeftIcon = new ImageIcon(imageURL);
-        imageURL = MainWindow.class.getResource("images/tapeRight.png");
-        ImageIcon tapeRightIcon = new ImageIcon(imageURL);
-        
-        m_BStart = new JButton();
-        m_BStart.setFocusable(false);
-        m_BStart.setAction(headToStartAction);
-        m_BStart.setText("");
-        m_BStart.addMouseListener(onClick);
+        m_BStart = control(headToStartAction, "tape-start", null);
 
-        m_BLeft = new JButton();
-        m_BLeft.setFocusable(false);
-        m_BLeft.setToolTipText("Move the read/write head to the left");
-        m_BLeft.setIcon(tapeLeftIcon);
-        m_BLeft.addActionListener(new ActionListener() 
+        m_BLeft = control(null, "tape-left", "Move the read/write head to the left");
+        m_BLeft.addActionListener(new ActionListener()
         {
-             public void actionPerformed(ActionEvent e) 
+             public void actionPerformed(ActionEvent e)
              {
                  try
                  {
                     // Move the head one cell to the left.
                     m_tapeDP.getTape().headLeft();
                     repaint();
+                    MainWindow.getInstance().refreshStatus();
                  }
                  catch (ComputationFailedException e1) { }
              }
         });
-        m_BLeft.addMouseListener(onClick);
 
-        m_BRight = new JButton();
-        m_BRight.setFocusable(false);
-        m_BRight.setToolTipText("Move the read/write head to the right");
-        m_BRight.setIcon(tapeRightIcon);
+        m_BRight = control(null, "tape-right", "Move the read/write head to the right");
         m_BRight.addActionListener(new ActionListener()
-        {    
-             public void actionPerformed(ActionEvent e) 
+        {
+             public void actionPerformed(ActionEvent e)
              {
                  // Move the head one cell to the right
                  m_tapeDP.getTape().headRight();
                  repaint();
+                 MainWindow.getInstance().refreshStatus();
              }
         });
-        m_BRight.addMouseListener(onClick);
 
-        m_BClearTape = new JButton();
-        m_BClearTape.setFocusable(false);
-        m_BClearTape.setAction(eraseTapeAction);
-        m_BClearTape.setText("");
-        m_BClearTape.addMouseListener(onClick);
+        m_BReloadTape = control(reloadAction, "tape-reload", null);
+        m_BClearTape = control(eraseTapeAction, "tape-clear", null);
 
-        m_BReloadTape = new JButton();
-        m_BReloadTape.setFocusable(false);
-        m_BReloadTape.setAction(reloadAction);
-        m_BReloadTape.setText("");
-        m_BReloadTape.addMouseListener(onClick);
+        for (FlatButton b : new FlatButton[] { m_BStart, m_BLeft, m_BRight, m_BReloadTape, m_BClearTape })
+        {
+            b.addMouseListener(onClick);
+        }
 
-        setLayout(new BorderLayout());
-        
-        JPanel leftButtonPanel = new JPanel();
-        leftButtonPanel.setBackground(Color.WHITE);
-        leftButtonPanel.setLayout(new BorderLayout());
+        // Caption, so the strip identifies itself rather than being an unlabelled row of buttons.
+        m_caption = new JLabel("TAPE");
+        m_caption.setFont(Theme.ui(Font.BOLD, 10));
+        m_caption.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 8));
+
+        JPanel leftButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        leftButtonPanel.setOpaque(false);
         leftButtonPanel.setFocusable(false);
-        leftButtonPanel.add(m_BStart, BorderLayout.WEST);
-        leftButtonPanel.add(m_BLeft, BorderLayout.EAST);
+        leftButtonPanel.add(m_caption);
+        leftButtonPanel.add(m_BStart);
+        leftButtonPanel.add(m_BLeft);
 
-        JPanel rightButtonPanel = new JPanel();
-        rightButtonPanel.setBackground(Color.WHITE);
-        rightButtonPanel.setLayout(new BorderLayout());
+        JPanel rightButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        rightButtonPanel.setOpaque(false);
         rightButtonPanel.setFocusable(false);
-        rightButtonPanel.add(m_BRight, BorderLayout.WEST);
-        rightButtonPanel.add(m_BClearTape, BorderLayout.EAST);
-        rightButtonPanel.add(m_BReloadTape, BorderLayout.CENTER);
+        rightButtonPanel.add(m_BRight);
+        rightButtonPanel.add(new FlatButton.Divider());
+        rightButtonPanel.add(m_BReloadTape);
+        rightButtonPanel.add(m_BClearTape);
 
-        m_BStart.setAlignmentY(Component.TOP_ALIGNMENT);
-        m_BLeft.setAlignmentY(Component.TOP_ALIGNMENT);
-        m_BRight.setAlignmentY(Component.TOP_ALIGNMENT);
-        m_BClearTape.setAlignmentY(Component.TOP_ALIGNMENT);
+        add(leftButtonPanel, BorderLayout.WEST);
+        add(m_tapeDP, BorderLayout.CENTER);
+        add(rightButtonPanel, BorderLayout.EAST);
 
-        add(leftButtonPanel,BorderLayout.WEST);
-        add(m_tapeDP,BorderLayout.CENTER);
-        add(rightButtonPanel, BorderLayout.EAST);      
+        applyTheme();
    }
 
-    /** 
+    /**
+     * Build one of the tape control buttons.
+     * @param act The action the button performs, or null if a listener will be attached instead.
+     * @param iconName The name of the icon to render.
+     * @param tip The tooltip to use, or null to derive one from the action.
+     * @return The button.
+     */
+    private FlatButton control(Action act, String iconName, String tip)
+    {
+        FlatButton b = new FlatButton(act, iconName, FlatButton.Style.TOOL, false);
+        b.setIconSize(ICON_SIZE);
+        if (tip != null)
+        {
+            b.setToolTipText(tip);
+        }
+        return b;
+    }
+
+    /**
+     * Apply the current palette to this panel.
+     */
+    private void applyTheme()
+    {
+        Theme.Palette p = Theme.palette();
+        setBackground(p.tapeBg);
+        setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, p.border),
+                    BorderFactory.createEmptyBorder(PADDING, PADDING, PADDING, PADDING)));
+        if (m_caption != null)
+        {
+            m_caption.setForeground(p.textMuted);
+        }
+        repaint();
+    }
+
+    /**
      * Enable/disable user editing operations/buttons etc.
      * @param isEnabled true if editing is enabled, false otherwise.
      */
@@ -182,34 +204,39 @@ public class TapeDisplayControllerPanel extends JPanel
         m_BRight.setEnabled(isEnabled);
         m_tapeDP.setEditingEnabled(isEnabled);
     }
-   
+
     /**
      * The tape display panel.
      */
     private TapeDisplayPanel m_tapeDP;
-    
+
     /**
      * Button for moving the read/write head left.
      */
-    private JButton m_BLeft;
-    
+    private FlatButton m_BLeft;
+
     /**
      * Button for moving the read/write head right.
      */
-    private JButton m_BRight;
-    
+    private FlatButton m_BRight;
+
     /**
      * Button for moving the read/write head to the start.
      */
-    private JButton m_BStart;
-    
+    private FlatButton m_BStart;
+
     /**
      * Button for clearing the tape.
      */
-    private JButton m_BClearTape;
-    
+    private FlatButton m_BClearTape;
+
     /**
      * Button for reloading the tape.
      */
-    private JButton m_BReloadTape;
+    private FlatButton m_BReloadTape;
+
+    /**
+     * Caption identifying the strip.
+     */
+    private JLabel m_caption;
 }

@@ -32,37 +32,60 @@ import java.io.File;
 import javax.swing.*;
 import tuataraTMSim.machine.Tape;
 
-/** 
+/**
  * A panel for displaying a Turing machine tape. Does not include any buttons, just the tape.
- * Assumes the use of a monospace font.
+ *
+ * Cells are drawn as discrete rounded tiles with a ruler above them, and the cell under the
+ * read/write head is filled with the accent colour and flagged with a marker, so that the head
+ * position is readable at a glance while a machine runs.
  */
 public class TapeDisplayPanel extends JPanel
-{ 
+{
     /**
-     * Width of a monospaced character, excluding padding. 
+     * Width of a tape cell, in pixels.
      */
-    protected static final int CHAR_WIDTH = new Canvas().getFontMetrics(Global.FONT_MONOSPACE).charWidth('_'); 
+    protected static final int CELL_WIDTH = 26;
 
     /**
-     * Horizontal padding around a tape cell.
+     * Height of a tape cell, in pixels.
      */
-    protected static final int CELLPADDING_X  = 4;
+    protected static final int CELL_HEIGHT = 30;
 
     /**
-     * Vertical padding around a tape cell.
+     * Gap between adjacent tape cells, in pixels.
      */
-    protected static final int CELLPADDING_Y  = 2;
+    protected static final int CELL_GAP = 3;
+
+    /**
+     * Distance between the left edges of adjacent cells, in pixels.
+     */
+    protected static final int CELL_PITCH = CELL_WIDTH + CELL_GAP;
+
+    /**
+     * Corner radius of a tape cell, in pixels.
+     */
+    protected static final int CELL_RADIUS = 6;
+
+    /**
+     * Height of the index ruler drawn above the tape, in pixels.
+     */
+    protected static final int RULER_HEIGHT = 15;
 
     /**
      * Horizontal padding around the entire tape.
      */
-    protected static final int TAPEPADDING_X = 5;
+    protected static final int TAPEPADDING_X = 6;
 
     /**
      * Vertical padding around the entire tape.
      */
-    protected static final int TAPEPADDING_Y = 2;
-    
+    protected static final int TAPEPADDING_Y = 4;
+
+    /**
+     * Cell indices which are a multiple of this are labelled on the ruler.
+     */
+    protected static final int RULER_INTERVAL = 5;
+
     /**
      * Creates a new instance of TapeDisplayPanel.
      * @param tape The underlying tape.
@@ -71,7 +94,7 @@ public class TapeDisplayPanel extends JPanel
     {
         this(tape, null);
     }
-    
+
     /**
      * Creates a new instance of TapeDisplayPanel.
      * @param tape The underlying tape.
@@ -83,86 +106,87 @@ public class TapeDisplayPanel extends JPanel
         m_file = file;
         initComponents();
     }
-    
+
     /**
      * Initialization routine.
      */
     public void initComponents()
     {
-        // TODO: Move into constructor.
         setFocusable(false);
-        this.setPreferredSize(new Dimension(500,50));
-        
-        addMouseListener(new MouseAdapter() 
+        setOpaque(true);
+        setPreferredSize(new Dimension(500, RULER_HEIGHT + CELL_HEIGHT + TAPEPADDING_Y * 2));
+        setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
+        setToolTipText("Click a cell to move the read/write head; type to write");
+
+        addMouseListener(new MouseAdapter()
         {
             public void mouseClicked(MouseEvent e)
-            {    
+            {
                 if (!m_isEditingEnabled)
                 {
                     return;
                 }
 
-                // Shift r/w head to the cell that was clicked on.
-                
-                // Get the current graphics object
-                Graphics g = getGraphics();
-                Graphics2D g2d = (Graphics2D)g;
-
-                // Measure how many cells there are
-                FontMetrics metrics = g2d.getFontMetrics();
-                // Need to take into account the 1px boundary
-                int cellsFromLeft = (e.getX() - 1) / (CHAR_WIDTH + 2 * CELLPADDING_X);                
-                int visibleCells = numCellsViewable(g);
-                int startPos = m_tape.headLocation() - (visibleCells/2);
+                // Shift the r/w head to the cell that was clicked on. The arithmetic here must
+                // mirror paintTape: when the head is near the left end of the tape, the leftmost
+                // slot is occupied by the end stop rather than by a cell, which is what the
+                // startPos of -1 accounts for.
+                int cellsFromLeft = (e.getX() - TAPEPADDING_X) / CELL_PITCH;
+                int visibleCells = numCellsViewable();
+                int startPos = m_tape.headLocation() - (visibleCells / 2);
                 if (startPos < 0)
                 {
                     startPos = -1;
                     visibleCells--;
                 }
                 int newCell = Math.max(cellsFromLeft + startPos, 0);
-                
+
                 while (m_tape.headLocation() < newCell)
                 {
                     m_tape.headRight();
                 }
-                
+
                 while (m_tape.headLocation() > newCell)
                 {
                     try { m_tape.headLeft(); }
                     catch (Exception e2) { break; }
                 }
                 repaint();
+                MainWindow.getInstance().refreshStatus();
             }
         });
     }
-    
-    /** 
+
+    /**
      * Paint this component to the given graphics object.
      * @param g The graphics object to render onto.
      */
     protected void paintComponent(Graphics g)
     {
-        Graphics2D g2d = (Graphics2D)g;
-        FontMetrics metrics = g2d.getFontMetrics();
-        
-        // Fill background
-        g2d.setColor(Color.WHITE);
-        g2d.fillRect(0, 0, getWidth(), getHeight());      
-        paintTape(g, TAPEPADDING_X, metrics.getAscent() + TAPEPADDING_Y);
+        Graphics2D g2d = Theme.prepare(g.create());
+        Theme.Palette p = Theme.palette();
+
+        g2d.setColor(p.tapeBg);
+        g2d.fillRect(0, 0, getWidth(), getHeight());
+
+        paintTape(g2d, TAPEPADDING_X, TAPEPADDING_Y + RULER_HEIGHT);
+        g2d.dispose();
     }
-    
-    /** 
+
+    /**
      * Paint the tape on the graphics object at the given location.
      * @param g The graphics object to render onto.
-     * @param x The X ordinate to render at.
-     * @param y The Y ordinate to render at.
+     * @param x The X ordinate of the upper-left corner of the first cell.
+     * @param y The Y ordinate of the upper-left corner of the first cell.
      */
     public void paintTape(Graphics g, int x, int y)
     {
-        // Figure out what cells to render
-        int visibleCells = numCellsViewable(g);
+        Graphics2D g2d = Theme.prepare(g);
+
+        // Figure out what cells to render, keeping the head near the middle of the strip.
+        int visibleCells = numCellsViewable();
         boolean drawTapeEnd = false;
-        int startPos = m_tape.headLocation() - (visibleCells/2);
+        int startPos = m_tape.headLocation() - (visibleCells / 2);
         if (startPos < 0)
         {
             startPos = 0;
@@ -170,75 +194,119 @@ public class TapeDisplayPanel extends JPanel
             visibleCells--;
         }
 
-        // Get the cell contents to render, including partial cells
         String tapeStr = m_tape.getPartialString(startPos, visibleCells + 1);
-        
-        // We need a monospaced font to ensure that the cells are all the same size.  This seemingly
-        // cannot be set in the constructor as the graphics object has not been created until the
-        // component is packed.
-        Graphics2D g2d = (Graphics2D)g;
-        g2d.setFont(Global.FONT_MONOSPACE);
-        FontMetrics metrics = g2d.getFontMetrics();
-        
-        int height = metrics.getHeight();
-        int ascent = metrics.getAscent();
-        int descent = metrics.getDescent();
-        int xAccumulator = 0;
+
+        int slot = 0;
         if (drawTapeEnd)
         {
-            paintTapeCell(g, '*', false, x + xAccumulator, y, ascent, descent);
-            xAccumulator += CHAR_WIDTH + 2 * CELLPADDING_X;
+            paintEndStop(g2d, x, y);
+            slot++;
         }
+
         for (int i = 0; i < tapeStr.length(); i++)
         {
-            boolean isHeadLoc = m_tape.headLocation() == i + startPos;
-            paintTapeCell(g, tapeStr.charAt(i), isHeadLoc, x + xAccumulator, y, ascent, descent);
-            xAccumulator += CHAR_WIDTH + 2 * CELLPADDING_X;
+            int index = i + startPos;
+            boolean isHeadLoc = m_tape.headLocation() == index;
+            int cellX = x + slot * CELL_PITCH;
+
+            paintTapeCell(g2d, tapeStr.charAt(i), isHeadLoc, cellX, y);
+            paintRulerLabel(g2d, index, isHeadLoc, cellX, y);
+            slot++;
         }
     }
-    
-    /** 
+
+    /**
+     * Paint the marker shown at the very start of the tape, indicating that there is nothing to the
+     * left of this point.
+     * @param g2d The graphics object to render onto.
+     * @param x The X ordinate of the upper-left corner of the slot.
+     * @param y The Y ordinate of the upper-left corner of the slot.
+     */
+    protected void paintEndStop(Graphics2D g2d, int x, int y)
+    {
+        Theme.Palette p = Theme.palette();
+        g2d.setColor(p.tapeRuler);
+        g2d.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        int cx = x + CELL_WIDTH / 2;
+        g2d.draw(new Line2D.Float(cx - 3, y + 5, cx - 3, y + CELL_HEIGHT - 5));
+        g2d.draw(new Line2D.Float(cx - 3, y + CELL_HEIGHT / 2f, cx + 4, y + CELL_HEIGHT / 2f));
+    }
+
+    /**
+     * Paint the index of a cell on the ruler above the tape. Only multiples of the ruler interval
+     * are labelled, along with the head position, which is always labelled.
+     * @param g2d The graphics object to render onto.
+     * @param index The index of the cell.
+     * @param isHeadLocation true if the read/write head is in this cell, false otherwise.
+     * @param x The X ordinate of the upper-left corner of the cell.
+     * @param y The Y ordinate of the upper-left corner of the cell.
+     */
+    protected void paintRulerLabel(Graphics2D g2d, int index, boolean isHeadLocation, int x, int y)
+    {
+        if (!isHeadLocation && index % RULER_INTERVAL != 0)
+        {
+            return;
+        }
+        Theme.Palette p = Theme.palette();
+        g2d.setFont(Theme.ui(isHeadLocation? Font.BOLD : Font.PLAIN, 10));
+        g2d.setColor(isHeadLocation? p.tapeHead : p.tapeRuler);
+        Theme.drawCentered(g2d, String.valueOf(index), x + CELL_WIDTH / 2.0, y - RULER_HEIGHT / 2.0 - 1);
+    }
+
+    /**
      * Paint a single cell of the tape.
-     * @param g The graphics object to render onto.
+     * @param g2d The graphics object to render onto.
      * @param c The character contained in this cell.
      * @param isHeadLocation true if the read/write head is in this cell, false otherwise.
-     * @param x The X ordinate of the baseline of the text when painted.
-     * @param y The Y ordinate of the baseline of the text when painted.
-     * @param ascent Distance in pixels the font can extend above the baseline of the text.
-     * @param descent Distance in pixels the font can extend below the baseline of the text.
+     * @param x The X ordinate of the upper-left corner of the cell.
+     * @param y The Y ordinate of the upper-left corner of the cell.
      */
-    public void paintTapeCell(Graphics g, char c, boolean isHeadLocation, int x, int y, int ascent, int descent)
+    public void paintTapeCell(Graphics2D g2d, char c, boolean isHeadLocation, int x, int y)
     {
-        Graphics2D g2d = (Graphics2D)g;
-        FontMetrics metrics = g2d.getFontMetrics();
-        
-        g2d.setColor(Color.BLACK);
-        g2d.draw(new Rectangle2D.Float(x - CELLPADDING_X, y - CELLPADDING_Y - ascent, CHAR_WIDTH + CELLPADDING_X * 2, ascent + descent + CELLPADDING_Y * 2));
+        Theme.Palette p = Theme.palette();
+        Shape cell = Theme.round(x, y, CELL_WIDTH, CELL_HEIGHT, CELL_RADIUS);
+
+        g2d.setColor(isHeadLocation? p.tapeHead : p.tapeCell);
+        g2d.fill(cell);
+
         if (!isHeadLocation)
         {
-            g2d.drawString("" + c, x, y);
+            g2d.setColor(p.tapeCellBorder);
+            g2d.setStroke(new BasicStroke(1f));
+            g2d.draw(cell);
         }
-        else
+
+        // The blank symbol is rendered as a muted placeholder rather than as a literal character,
+        // so that occupied cells stand out from empty ones.
+        boolean blank = c == Tape.BLANK_SYMBOL;
+        g2d.setFont(Theme.mono(blank? Font.PLAIN : Font.BOLD, 15));
+        g2d.setColor(isHeadLocation? p.onTapeHead : (blank? p.tapeRuler : p.tapeText));
+        Theme.drawCentered(g2d, String.valueOf(c), x + CELL_WIDTH / 2.0, y + CELL_HEIGHT / 2.0);
+
+        if (isHeadLocation)
         {
-            g2d.fill(new Rectangle2D.Float(x - CELLPADDING_X, y - CELLPADDING_Y - ascent, CHAR_WIDTH + CELLPADDING_X * 2, ascent + descent + CELLPADDING_Y * 2));
-            g2d.setColor(Color.WHITE);
-            g2d.drawString("" + c, x, y);
-        } 
+            // A downward wedge above the cell, marking the head.
+            Path2D.Float wedge = new Path2D.Float();
+            float cx = x + CELL_WIDTH / 2f;
+            wedge.moveTo(cx - 4, y - 5);
+            wedge.lineTo(cx + 4, y - 5);
+            wedge.lineTo(cx, y - 1);
+            wedge.closePath();
+            g2d.setColor(p.tapeHead);
+            g2d.fill(wedge);
+        }
     }
-    
-    /** 
+
+    /**
      * A helper function that calculates how many cells will fit on the viewing panel at one time,
      * rounded down to the nearest whole number.
-     * @param g The graphics object used to measure text.
      * @return The number of cells that will fit on the viewing panel.
      */
-    private int numCellsViewable(Graphics g)
+    private int numCellsViewable()
     {
-        Graphics2D g2d = (Graphics2D)g;
-        FontMetrics metrics = g2d.getFontMetrics();
-        return getWidth() / (CHAR_WIDTH + 2 * CELLPADDING_X); // Integer division, rounding down.
+        return Math.max(1, (getWidth() - TAPEPADDING_X * 2) / CELL_PITCH);
     }
-    
+
     /**
      * Get the tape currently associated with this panel.
      * @return The tape associated with this panel.
@@ -247,7 +315,7 @@ public class TapeDisplayPanel extends JPanel
     {
         return m_tape;
     }
-    
+
     /**
      * Change the tape currently associated with this panel.
      * @param t The new tape associated with this panel.
@@ -256,7 +324,7 @@ public class TapeDisplayPanel extends JPanel
     {
         m_tape = t;
     }
-    
+
     /**
      * Handle a keystroke
      * @param e The generating event.
@@ -266,44 +334,47 @@ public class TapeDisplayPanel extends JPanel
     {
        char c = e.getKeyChar();
        c = Character.toUpperCase(c);
+       boolean handled = false;
+
        if (Character.isLetterOrDigit(c))
        {
             getTape().write(c);
             getTape().headRight();
-            repaint();
-            return true;
+            handled = true;
        }
        else if (c == ' ' || c == Tape.BLANK_SYMBOL)
        {
             getTape().write(Tape.BLANK_SYMBOL);
             getTape().headRight();
-            repaint();
-            return true;
+            handled = true;
        }
        else if (e.getKeyCode() == KeyEvent.VK_LEFT)
        {
             try { getTape().headLeft(); }
             catch (Exception e2) { }
-            repaint();
-            return true;
+            handled = true;
        }
        else if (e.getKeyCode() == KeyEvent.VK_RIGHT)
        {
             getTape().headRight();
-            repaint();
-            return true;
+            handled = true;
        }
        else if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE)
        {
            getTape().write(Tape.BLANK_SYMBOL);
            try { getTape().headLeft(); }
            catch (Exception e2) { }
-           repaint();
-           return true;
+           handled = true;
        }
-       return false;
+
+       if (handled)
+       {
+           repaint();
+           MainWindow.getInstance().refreshStatus();
+       }
+       return handled;
     }
-    
+
     /**
      * Get the file associated with this tape.
      * @return The file associated with this tape.
@@ -312,7 +383,7 @@ public class TapeDisplayPanel extends JPanel
     {
         return m_file;
     }
-    
+
     /**
      * Set the file associated with this tape.
      * @param file The new file associated with this tape.
@@ -321,7 +392,7 @@ public class TapeDisplayPanel extends JPanel
     {
         m_file = file;
     }
-    
+
     /**
      * Set whether editing is enabled.
      * @param isEnabled true if editing is enabled, false otherwise.
@@ -330,7 +401,7 @@ public class TapeDisplayPanel extends JPanel
     {
         m_isEditingEnabled = isEnabled;
     }
-    
+
     /**
      * The underlying tape.
      */

@@ -29,9 +29,14 @@ import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.io.*;
 import tuataraTMSim.exceptions.ComputationFailedException;
+import tuataraTMSim.Theme;
 
 /**
  * An abstraction of an action with a precondition for a state transition of a machine.
+ *
+ * NOTE: This type is serialized to disk as part of a saved machine, and declares
+ * serialVersionUID = 1L. Its fields must not change; appearance is derived from {@link Theme} at
+ * paint time.
  */
 public abstract class PreAction implements Serializable
 {
@@ -39,6 +44,16 @@ public abstract class PreAction implements Serializable
      * Serialization version.
      */
     public static final long serialVersionUID = 1L;
+
+    /**
+     * Horizontal padding between the action text and the edge of its plate.
+     */
+    protected static final int PILL_PAD_X = 5;
+
+    /**
+     * Vertical padding between the action text and the edge of its plate.
+     */
+    protected static final int PILL_PAD_Y = 2;
 
     /**
      * Creates an instance of PreAction.
@@ -117,26 +132,50 @@ public abstract class PreAction implements Serializable
     }
  
     /**
+     * The font used to render an action's text. Transition subclasses measure their symbol
+     * bounding boxes with this same font, so that hit-testing matches what is drawn.
+     * @return The action font.
+     */
+    public static Font actionFont()
+    {
+        return Theme.mono(Font.PLAIN, 12);
+    }
+
+    /**
      * Render the action to a graphics object. The text will be centered at (x, y).
+     *
+     * The text sits on a rounded plate in the canvas colour, so that it stays legible where it
+     * overlaps other transitions, which is common in a dense diagram.
+     *
      * @param g The graphics object to render to.
      * @param x The X ordinate to render to.
      * @param y The Y ordinate to render to.
      */
     public void paint(Graphics g, int x, int y)
     {
-        Graphics2D g2d = (Graphics2D)g;
-        
-        g2d.setColor(Color.BLACK);
-        
+        Graphics2D g2d = Theme.prepare(g);
+        Theme.Palette p = Theme.palette();
+
         String outputStr = toString();
-        FontMetrics metrics = g.getFontMetrics(g.getFont());
-        
-        // Re-adjust position
+        Font font = actionFont();
+        FontMetrics metrics = g.getFontMetrics(font);
         Rectangle2D bounds = metrics.getStringBounds(outputStr, g);
-        x -= bounds.getWidth() / 2;
-        y += metrics.getAscent() / 2;
-        
-        g2d.drawString(outputStr, x, y);
+
+        double w = bounds.getWidth() + PILL_PAD_X * 2;
+        double h = metrics.getAscent() + metrics.getDescent() + PILL_PAD_Y * 2;
+        double px = x - w / 2;
+        double py = y - h / 2;
+
+        Shape pill = Theme.round(px, py, w, h, h / 2);
+        g2d.setColor(Theme.alpha(p.actionPill, 235));
+        g2d.fill(pill);
+        g2d.setColor(Theme.alpha(p.border, 190));
+        g2d.setStroke(new BasicStroke(1f));
+        g2d.draw(pill);
+
+        g2d.setFont(font);
+        g2d.setColor(p.actionText);
+        Theme.drawCentered(g2d, outputStr, x, y);
     }
  
     /** 

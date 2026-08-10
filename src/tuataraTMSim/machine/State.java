@@ -29,9 +29,15 @@ import java.awt.*;
 import java.awt.geom.*;
 import java.io.Serializable;
 import java.util.Collection;
+import tuataraTMSim.Theme;
 
 /**
  * Represents a state in a machine.
+ *
+ * NOTE: This type is serialized to disk as part of a saved machine, and declares
+ * serialVersionUID = 1L. Its fields must not change. Appearance is derived entirely from
+ * {@link Theme} at paint time, so that saved machines stay loadable and so that states follow a
+ * change of palette.
  */
 public abstract class State<
     PREACTION extends PreAction,
@@ -147,12 +153,44 @@ public abstract class State<
     }
 
     /**
-     * Get the color to paint this object.
+     * Get the color to paint the interior of this object.
      * @return The color to paint this object.
      */
     protected Paint getPaint()
     {
-        return new Color(255, 100, 100);
+        return Theme.palette().stateFill;
+    }
+
+    /**
+     * Get the font used to render the state's label.
+     * @return The label font.
+     */
+    protected static Font labelFont()
+    {
+        return Theme.ui(Font.BOLD, 12);
+    }
+
+    /**
+     * Compute the bounding box of this state's label in viewplane space.
+     *
+     * The label is placed inside the state when it is short enough to fit, and immediately below it
+     * otherwise.
+     *
+     * @param g The graphics object, used to measure the label's dimensions.
+     * @return The bounding box of the label.
+     */
+    protected Rectangle2D labelBounds(Graphics g)
+    {
+        FontMetrics metrics = g.getFontMetrics(labelFont());
+        int width = metrics.stringWidth(m_label);
+        int height = metrics.getHeight();
+
+        double cx = m_windowX + STATE_RENDERING_WIDTH / 2.0;
+        double cy = width <= STATE_RENDERING_WIDTH - 7
+                  ? m_windowY + STATE_RENDERING_WIDTH / 2.0
+                  : m_windowY + STATE_RENDERING_WIDTH + TEXT_DISTANCE - metrics.getAscent() / 2.0;
+
+        return new Rectangle2D.Double(cx - width / 2.0, cy - height / 2.0, width, height);
     }
 
     /**
@@ -162,40 +200,56 @@ public abstract class State<
      */
     public void paint(Graphics g, Collection<? extends State> selectedStates)
     {
-        Graphics2D g2d = (Graphics2D)g;
+        Graphics2D g2d = Theme.prepare(g);
+        Theme.Palette p = Theme.palette();
+        boolean selected = selectedStates.contains(this);
 
-        // Paint the state
-        Ellipse2D.Float stateCircle = new Ellipse2D.Float(m_windowX, m_windowY, STATE_RENDERING_WIDTH, STATE_RENDERING_WIDTH);
+        Ellipse2D.Float stateCircle = new Ellipse2D.Float(
+                m_windowX, m_windowY, STATE_RENDERING_WIDTH, STATE_RENDERING_WIDTH);
+
+        // If start, draw a marker entering the state from the left. Drawn first so the state body
+        // covers where the marker meets the circle.
+        if (isStartState())
+        {
+            float midY = m_windowY + STATE_RENDERING_WIDTH / 2f;
+            float tipX = m_windowX - 3;
+            g2d.setColor(p.stateStart);
+            g2d.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2d.draw(new Line2D.Float(m_windowX - STATE_RENDERING_WIDTH * 0.6f, midY, tipX - 4, midY));
+
+            Path2D.Float head = new Path2D.Float();
+            head.moveTo(tipX, midY);
+            head.lineTo(tipX - 6, midY - 4.2f);
+            head.lineTo(tipX - 6, midY + 4.2f);
+            head.closePath();
+            g2d.fill(head);
+        }
+
+        // A soft shadow lifts the state off the canvas and separates overlapping nodes.
+        Theme.shadow(g2d, stateCircle, 3);
+
         g2d.setPaint(getPaint());
         g2d.fill(stateCircle);
 
-        // Determine the color we should paint the edge
-        g2d.setColor(selectedStates.contains(this)? Color.RED : Color.BLACK);
+        g2d.setColor(selected? p.stateSelected : p.stateStroke);
+        g2d.setStroke(new BasicStroke(selected? 2.5f : 2f));
         g2d.draw(stateCircle);
 
-        // If final, draw a small rim on the interior
+        // If final, draw a concentric rim on the interior, the standard notation for an
+        // accepting state.
         if (isFinalState())
         {
-            g2d.draw(new Ellipse2D.Float(m_windowX + 5, m_windowY + 5, STATE_RENDERING_WIDTH - 10, STATE_RENDERING_WIDTH - 10));
+            g2d.setStroke(new BasicStroke(1.6f));
+            g2d.draw(new Ellipse2D.Float(m_windowX + 4, m_windowY + 4,
+                        STATE_RENDERING_WIDTH - 8, STATE_RENDERING_WIDTH - 8));
         }
 
-        // If start, draw a curved arrow into the state
-        // TODO: Do we really need the curvature, or is this excessive
-        if (isStartState())
-        {
-            g2d.draw(new Line2D.Float(m_windowX - STATE_RENDERING_WIDTH/2, m_windowY + STATE_RENDERING_WIDTH/2, m_windowX, m_windowY + STATE_RENDERING_WIDTH/2));
-            g2d.draw(new Line2D.Float(m_windowX - STATE_RENDERING_WIDTH/4, m_windowY + STATE_RENDERING_WIDTH/4, m_windowX, m_windowY + STATE_RENDERING_WIDTH/2));
-            g2d.draw(new Line2D.Float(m_windowX - STATE_RENDERING_WIDTH/4, m_windowY + STATE_RENDERING_WIDTH*3/4, m_windowX, m_windowY + STATE_RENDERING_WIDTH/2));
-            // Tail
-            g2d.draw(new QuadCurve2D.Float(m_windowX - STATE_RENDERING_WIDTH/2, m_windowY +
-                        STATE_RENDERING_WIDTH/2, m_windowX - STATE_RENDERING_WIDTH*3/4, m_windowY + STATE_RENDERING_WIDTH/2,
-                        m_windowX - STATE_RENDERING_WIDTH*2/3, m_windowY + STATE_RENDERING_WIDTH/3));
-        }
-
-        // Draw in the state name below
-        FontMetrics metrics = g.getFontMetrics(g.getFont());
-        int textTranslationX = -metrics.stringWidth(m_label) / 2;
-        g2d.drawString(m_label, m_windowX + STATE_RENDERING_WIDTH/2 + textTranslationX, m_windowY + STATE_RENDERING_WIDTH + TEXT_DISTANCE);
+        // Draw the state name, inside the state where it fits.
+        Rectangle2D bounds = labelBounds(g);
+        FontMetrics metrics = g.getFontMetrics(labelFont());
+        g2d.setFont(labelFont());
+        g2d.setColor(p.stateLabel);
+        g2d.drawString(m_label, (float)bounds.getX(), (float)(bounds.getY() + metrics.getAscent()));
     }
 
     /**
@@ -208,28 +262,6 @@ public abstract class State<
     {
         return new Ellipse2D.Float(m_windowX, m_windowY, STATE_RENDERING_WIDTH, STATE_RENDERING_WIDTH)
             .contains(x, y);
-    }
-
-    /**
-     * Determine if this state's label contains the point (x, y)
-     * @param g The graphics object, used to measure the label's dimensions.
-     * @param x The X ordinate.
-     * @param y The Y ordinate.
-     * @return true if this state's label contains the point (x, y), false otherwise.
-     */
-    public boolean nameContainsPoint(Graphics g, int x, int y)
-    {
-        Graphics2D g2d = (Graphics2D)g;
-        FontMetrics metrics = g.getFontMetrics(g.getFont());
-        int textTranslationX = -metrics.stringWidth(m_label) / 2;
-
-        Rectangle2D boundingbox = metrics.getStringBounds(m_label,g);
-
-        // Translate x and y to bounding box coordinate system.
-        x -= (m_windowX + STATE_RENDERING_WIDTH/2 + textTranslationX);
-        y -= (m_windowY + STATE_RENDERING_WIDTH + TEXT_DISTANCE);
-
-        return boundingbox.contains(x, y);
     }
 
     /**

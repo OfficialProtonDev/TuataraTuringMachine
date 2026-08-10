@@ -51,8 +51,18 @@ public abstract class MachineGraphicsPanel<
     /**
      * Dashed stroke used for displaying the marquee selection.
      */
-    protected final BasicStroke DASHED_STROKE = 
-        new BasicStroke( 1.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[] { 3.0f }, 0.0f);
+    protected final BasicStroke DASHED_STROKE =
+        new BasicStroke( 1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[] { 4.0f, 3.0f }, 0.0f);
+
+    /**
+     * Distance in pixels between dots on the canvas grid.
+     */
+    protected static final int GRID_SPACING = 24;
+
+    /**
+     * Radius in pixels, beyond the edge of a state, of the halo drawn around the current state.
+     */
+    protected static final int CURRENT_STATE_HALO = 13;
 
     /**
      * Trigger indicating an event should never be enabled.
@@ -224,6 +234,33 @@ public abstract class MachineGraphicsPanel<
     public void setUIMode(GUI_Mode currentMode)
     {
         m_currentMode = currentMode;
+        setCursor(Cursor.getPredefinedCursor(cursorForMode(currentMode)));
+    }
+
+    /**
+     * Map an interaction mode to the mouse cursor which best signals what a click will do. Showing
+     * the active tool at the pointer means the user does not have to look back at the toolbar to
+     * remember which mode they are in.
+     * @param mode The interaction mode.
+     * @return One of the Cursor type constants.
+     */
+    protected static int cursorForMode(GUI_Mode mode)
+    {
+        if (mode == null)
+        {
+            return Cursor.DEFAULT_CURSOR;
+        }
+        switch (mode)
+        {
+            case ADDNODES:           return Cursor.CROSSHAIR_CURSOR;
+            case ADDTRANSITIONS:     return Cursor.HAND_CURSOR;
+            case SELECTION:          return Cursor.DEFAULT_CURSOR;
+            case ERASER:             return Cursor.HAND_CURSOR;
+            case CHOOSESTART:        return Cursor.HAND_CURSOR;
+            case CHOOSEFINAL:        return Cursor.HAND_CURSOR;
+            case CHOOSECURRENTSTATE: return Cursor.HAND_CURSOR;
+            default:                 return Cursor.DEFAULT_CURSOR;
+        }
     }
 
     /**
@@ -371,19 +408,32 @@ public abstract class MachineGraphicsPanel<
         int w = getWidth();
         int h = getHeight();
 
-        Graphics2D g2d = (Graphics2D)g;
+        Graphics2D g2d = Theme.prepare(g);
+        Theme.Palette p = Theme.palette();
+
         // Fill background
-        g2d.setColor(Color.WHITE);
+        g2d.setColor(p.canvas);
         g2d.fillRect(0, 0, w, h);
+        paintGrid(g2d, w, h);
         g2d.setFont(Global.FONT_MONOSPACE);
 
         STATE currentState = getSimulator().getCurrentState();
         if (currentState != null)
         {
-            g2d.setColor(Color.YELLOW);
-            g2d.fill(new Ellipse2D.Float(currentState.getX() - 5, currentState.getY() - 5, STATE.STATE_RENDERING_WIDTH + 10, STATE.STATE_RENDERING_WIDTH + 10));
-            g2d.setColor(Color.BLACK);
-            g2d.draw(new Ellipse2D.Float(currentState.getX() - 5, currentState.getY() - 5, STATE.STATE_RENDERING_WIDTH + 10, STATE.STATE_RENDERING_WIDTH + 10));
+            // A soft halo behind the state the machine is currently in. Drawn as concentric
+            // translucent rings rather than as a hard disc, so the state itself stays readable.
+            double cx = currentState.getX() + STATE.STATE_RENDERING_WIDTH / 2.0;
+            double cy = currentState.getY() + STATE.STATE_RENDERING_WIDTH / 2.0;
+            for (int i = CURRENT_STATE_HALO; i > 0; i -= 3)
+            {
+                double r = STATE.STATE_RENDERING_WIDTH / 2.0 + i;
+                g2d.setColor(Theme.alpha(p.stateCurrentGlow, 22));
+                g2d.fill(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
+            }
+            double r = STATE.STATE_RENDERING_WIDTH / 2.0 + 4;
+            g2d.setColor(p.stateCurrent);
+            g2d.setStroke(new BasicStroke(2.5f));
+            g2d.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
         }
 
         getSimulator().getMachine().paint(g, m_selectedStates, m_selectedTransitions, getSimulator());
@@ -391,7 +441,8 @@ public abstract class MachineGraphicsPanel<
         {
             if (!(m_drawPosX == Integer.MIN_VALUE) || !(m_drawPosY == Integer.MIN_VALUE))
             {
-                g2d.setColor(Color.BLACK);
+                g2d.setColor(p.accent);
+                g2d.setStroke(DASHED_STROKE);
                 g2d.draw(new Line2D.Float(m_mousePressedState.getX() + STATE.STATE_RENDERING_WIDTH/2,m_mousePressedState.getY()+ STATE.STATE_RENDERING_WIDTH/2, m_drawPosX, m_drawPosY));
             }
         }
@@ -400,7 +451,7 @@ public abstract class MachineGraphicsPanel<
         {
             Stroke current = g2d.getStroke();
             g2d.setStroke(DASHED_STROKE);
-            g2d.setColor(Color.BLACK);
+            g2d.setColor(p.accent);
             g2d.draw(m_selectedSymbolBoundingBox);
             g2d.setStroke(current);
         }
@@ -408,17 +459,38 @@ public abstract class MachineGraphicsPanel<
         // A marquee selection is taking place
         if (m_selectionBox != null)
         {
-            g2d.setColor(Color.BLACK);
             int topLeftX = Math.min(m_selectionBox.x, m_selectionBox.x + m_selectionBox.width),
                 topLeftY = Math.min(m_selectionBox.y, m_selectionBox.y + m_selectionBox.height),
                 width    = Math.abs(m_selectionBox.width),
                 height   = Math.abs(m_selectionBox.height);
             Stroke current = g2d.getStroke();
-            g2d.setStroke(DASHED_STROKE);
-            g2d.draw(new Rectangle2D.Float(topLeftX, topLeftY,
-                        width, height));
-            g2d.setStroke(current);
 
+            Shape marquee = new Rectangle2D.Float(topLeftX, topLeftY, width, height);
+            g2d.setColor(Theme.alpha(p.accent, 26));
+            g2d.fill(marquee);
+            g2d.setStroke(DASHED_STROKE);
+            g2d.setColor(p.accent);
+            g2d.draw(marquee);
+            g2d.setStroke(current);
+        }
+    }
+
+    /**
+     * Paint the canvas dot grid, which gives the otherwise featureless canvas a sense of scale and
+     * makes it obvious that states can be dragged around.
+     * @param g2d The graphics object to render onto.
+     * @param w The width of the canvas.
+     * @param h The height of the canvas.
+     */
+    protected void paintGrid(Graphics2D g2d, int w, int h)
+    {
+        g2d.setColor(Theme.palette().canvasGrid);
+        for (int x = GRID_SPACING; x < w; x += GRID_SPACING)
+        {
+            for (int y = GRID_SPACING; y < h; y += GRID_SPACING)
+            {
+                g2d.fillRect(x, y, 1, 1);
+            }
         }
     }
 

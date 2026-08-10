@@ -25,28 +25,63 @@
 
 package tuataraTMSim;
 
-import java.awt.BorderLayout;
-import java.awt.Dimension;
+import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.time.format.DateTimeFormatter;
 import java.time.LocalDateTime;
 import javax.swing.*;
+import javax.swing.text.*;
 
 /**
- * A frame for machines to log information to. This panel may be written to by every machine
+ * A panel for machines to log information to. This panel may be written to by every machine
  * currently loaded due to the fact that the accesses are mutually exclusive.
+ *
+ * Messages carry a severity so that failures are visually distinct from ordinary progress, and the
+ * view follows the end of the log as it is written, which matters while a machine is running.
  */
 public class ConsolePanel extends JPanel
 {
     /**
      * Text displayed when the console is opened, or cleared.
      */
-    protected static final String SPLASH_TEXT = ">>> Tuatara Turing Machine Simulator " + Global.VERSION + " <<<";
+    protected static final String SPLASH_TEXT = "Tuatara Turing Machine Simulator " + Global.VERSION;
 
+    /**
+     * Severity of a logged message.
+     */
+    public enum Level
+    {
+        /**
+         * Ordinary progress.
+         */
+        INFO,
+
+        /**
+         * Something the user should notice, but which did not stop the operation.
+         */
+        WARNING,
+
+        /**
+         * An operation failed.
+         */
+        ERROR
+    }
+
+    /**
+     * Creates a new instance of ConsolePanel.
+     */
     public ConsolePanel()
     {
         super();
         initComponents();
+        Theme.onChange(new Runnable()
+        {
+            public void run()
+            {
+                applyTheme();
+            }
+        });
     }
 
     /**
@@ -56,18 +91,93 @@ public class ConsolePanel extends JPanel
     {
         setLayout(new BorderLayout());
 
-        // Text area
-        m_text = new JTextArea();
-        m_text.setFont(Global.FONT_DIALOG);
-        m_text.setLineWrap(true);
-        m_text.setEditable(false);
-        JScrollPane scroll = new JScrollPane(m_text);
-        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        add(scroll, BorderLayout.CENTER);
+        // Header, giving the panel an identity and somewhere to hang the clear action.
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 6));
 
-        // Clear and setup any text on m_text
+        m_title = new JLabel("Console");
+        m_title.setFont(Theme.ui(Font.BOLD, 11));
+
+        m_clear = new FlatButton(null, "delete", FlatButton.Style.TOOL, false);
+        m_clear.setIconSize(14);
+        m_clear.setToolTipText("Clear the console");
+        m_clear.addActionListener(new ActionListener()
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                clear();
+            }
+        });
+
+        header.add(m_title, BorderLayout.WEST);
+        header.add(m_clear, BorderLayout.EAST);
+        add(header, BorderLayout.NORTH);
+
+        // Body.
+        m_text = new JTextPane();
+        m_text.setEditable(false);
+        m_text.setBorder(BorderFactory.createEmptyBorder(2, 10, 8, 10));
+        m_doc = m_text.getStyledDocument();
+
+        // Keep the view pinned to the end of the log as new text arrives.
+        DefaultCaret caret = (DefaultCaret)m_text.getCaret();
+        caret.setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE);
+
+        m_scroll = new JScrollPane(m_text);
+        m_scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        m_scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        m_scroll.setBorder(BorderFactory.createEmptyBorder());
+        add(m_scroll, BorderLayout.CENTER);
+
+        applyTheme();
         clear();
+    }
+
+    /**
+     * Apply the current palette to this panel and rebuild the text styles.
+     */
+    private void applyTheme()
+    {
+        Theme.Palette p = Theme.palette();
+
+        setBackground(p.consoleBg);
+        setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, p.border));
+        if (m_title != null)
+        {
+            m_title.setForeground(p.textMuted);
+            m_title.getParent().setBackground(p.consoleBg);
+        }
+        m_text.setBackground(p.consoleBg);
+        m_text.setForeground(p.consoleText);
+        m_scroll.getViewport().setBackground(p.consoleBg);
+
+        style("timestamp", Theme.mono(Font.PLAIN, 12), p.consoleMuted);
+        style("info",      Theme.ui(Font.PLAIN, 12),   p.consoleText);
+        style("warning",   Theme.ui(Font.PLAIN, 12),   p.warning);
+        style("error",     Theme.ui(Font.PLAIN, 12),   p.danger);
+        style("trace",     Theme.mono(Font.PLAIN, 12), p.consoleText);
+        style("splash",    Theme.ui(Font.BOLD, 12),    p.accent);
+
+        repaint();
+    }
+
+    /**
+     * Define or redefine a named text style.
+     * @param name The name of the style.
+     * @param font The font the style uses.
+     * @param color The colour the style uses.
+     */
+    private void style(String name, Font font, Color color)
+    {
+        Style s = m_text.getStyle(name);
+        if (s == null)
+        {
+            s = m_text.addStyle(name, null);
+        }
+        StyleConstants.setFontFamily(s, font.getFamily());
+        StyleConstants.setFontSize(s, font.getSize());
+        StyleConstants.setBold(s, font.isBold());
+        StyleConstants.setForeground(s, color);
     }
 
     /**
@@ -80,13 +190,21 @@ public class ConsolePanel extends JPanel
     }
 
     /**
-     * Append text to the console.
+     * Append text to the console in the given style.
+     * @param styleName The name of the style to append in.
      * @param fmt The format string to be appended.
      * @param args Arguments for the format string.
      */
-    private void append(String fmt, Object... args)
+    private void append(String styleName, String fmt, Object... args)
     {
-        m_text.append(String.format(fmt, args));
+        try
+        {
+            m_doc.insertString(m_doc.getLength(), String.format(fmt, args), m_text.getStyle(styleName));
+        }
+        catch (BadLocationException e)
+        {
+            // The insert is always at the end of the document, so this cannot occur.
+        }
     }
 
     /**
@@ -102,8 +220,8 @@ public class ConsolePanel extends JPanel
         if (!m_partial)
         {
             // Do not add a newline, so we can continue logging after this message.
-            append("[%s] ", timestamp());
-            append(fmt, args);
+            append("timestamp", "%s  ", timestamp());
+            append("trace", fmt, args);
             m_partial = true;
             m_panel = panel;
         }
@@ -111,16 +229,15 @@ public class ConsolePanel extends JPanel
         else if (m_panel == panel)
         {
             // Continue logging on the same line
-            append(fmt, args);
+            append("trace", fmt, args);
         }
         // Last message was partial, and the panel did not send it.
         else
         {
-            // TODO: Decide if this is necessary for the user to see
-            append(" -- Interrupted\n");
+            append("warning", " -- Interrupted\n");
             // Begin logging on a new line
-            append("[%s] ", timestamp());
-            append(fmt, args);
+            append("timestamp", "%s  ", timestamp());
+            append("trace", fmt, args);
             m_partial = true;
             m_panel = panel;
         }
@@ -131,7 +248,7 @@ public class ConsolePanel extends JPanel
      */
     public void endPartial()
     {
-        if (m_partial) append("\n");
+        if (m_partial) append("trace", "\n");
         m_panel = null;
         m_partial = false;
     }
@@ -143,26 +260,78 @@ public class ConsolePanel extends JPanel
      */
     public void log(String fmt, Object... args)
     {
+        log(Level.INFO, fmt, args);
+    }
+
+    /**
+     * Log a warning to the console.
+     * @param fmt The format string to be logged.
+     * @param args Arguments for the format string.
+     */
+    public void logWarning(String fmt, Object... args)
+    {
+        log(Level.WARNING, fmt, args);
+    }
+
+    /**
+     * Log an error to the console.
+     * @param fmt The format string to be logged.
+     * @param args Arguments for the format string.
+     */
+    public void logError(String fmt, Object... args)
+    {
+        log(Level.ERROR, fmt, args);
+    }
+
+    /**
+     * Log text to the console at the given severity. Forces text to appear on a new line.
+     * @param level The severity of the message.
+     * @param fmt The format string to be logged.
+     * @param args Arguments for the format string.
+     */
+    public void log(Level level, String fmt, Object... args)
+    {
         // Finish any partial messages, then log
         endPartial();
-        append("[%s] ", timestamp());
-        append(fmt, args);
-        append("\n");
+        append("timestamp", "%s  ", timestamp());
+        append(level == Level.ERROR? "error" : level == Level.WARNING? "warning" : "info", fmt, args);
+        append("info", "\n");
     }
 
     /**
      * Clear the text area, and draw the splash text.
      */
-    private void clear()
+    public void clear()
     {
         endPartial();
-        m_text.setText(SPLASH_TEXT + "\n");
+        m_text.setText("");
+        append("splash", "%s\n", SPLASH_TEXT);
     }
 
     /**
-     * The underlying text area used to store the logged text.
+     * The underlying text pane used to store the logged text.
      */
-    private JTextArea m_text;
+    private JTextPane m_text;
+
+    /**
+     * The document backing the text pane.
+     */
+    private StyledDocument m_doc;
+
+    /**
+     * The scroll pane containing the text pane.
+     */
+    private JScrollPane m_scroll;
+
+    /**
+     * The header title label.
+     */
+    private JLabel m_title;
+
+    /**
+     * The button which clears the console.
+     */
+    private FlatButton m_clear;
 
     /**
      * Panel currently logging a partial message.

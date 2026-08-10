@@ -30,9 +30,14 @@ import java.awt.geom.*;
 import java.util.Collection;
 import java.io.Serializable;
 import tuataraTMSim.Spline;
+import tuataraTMSim.Theme;
 
 /**
  * Represents a transition in a machine.
+ *
+ * NOTE: This type is serialized to disk as part of a saved machine, and declares
+ * serialVersionUID = 1L. Its fields must not change; appearance is derived from {@link Theme} at
+ * paint time.
  */
 public abstract class Transition<
     PREACTION extends PreAction,
@@ -172,9 +177,10 @@ public abstract class Transition<
      */
     protected Paint getPaint(boolean isSelected, boolean isCurrent)
     {
-        return isSelected? Color.RED
-             : isCurrent?  Color.PINK
-             : Color.BLUE;
+        Theme.Palette p = Theme.palette();
+        return isSelected? p.transitionSelected
+             : isCurrent?  p.transitionActive
+             :             p.transition;
     }
 
     /**
@@ -183,16 +189,23 @@ public abstract class Transition<
      * @param selectedTransitions The set of transitions selected by the user.
      * @param simulator The current simulator.
      */
-    public void paint(Graphics g, Collection<? extends Transition> selectedTransitions, 
+    public void paint(Graphics g, Collection<? extends Transition> selectedTransitions,
                       SIMULATOR simulator)
     {
         // Get a 2d graphics object
-        Graphics2D g2d = (Graphics2D)g;
+        Graphics2D g2d = Theme.prepare(g);
+
+        boolean isSelected = selectedTransitions.contains(this);
+        boolean isCurrent = simulator.getNextTransitions().contains(this);
 
         // Choose color based off of this transitions state
-        g2d.setPaint(getPaint(selectedTransitions.contains(this),
-                              simulator.getNextTransitions().contains(this)));
-       
+        g2d.setPaint(getPaint(isSelected, isCurrent));
+
+        // The transition the machine will take next is drawn heavier, so that it stands out from
+        // the rest of the diagram while stepping through a computation.
+        g2d.setStroke(new BasicStroke(isSelected || isCurrent? 2.6f : 1.8f,
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
         // An arc
         if (m_fromState != m_toState)
         {
@@ -234,9 +247,9 @@ public abstract class Transition<
         // TODO: Justify this conditional
         if (!startEqualsEnd || (m_fromState == m_toState))
         {
-            // Change the line style 
+            // Change the line style
             Stroke originalStroke = g2d.getStroke();
-            g2d.setStroke(new BasicStroke(1, BasicStroke.CAP_ROUND, BasicStroke.JOIN_BEVEL));
+            g2d.setStroke(new BasicStroke(1, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 
             // Get the arrowhead
             GeneralPath triangle = buildArrowHead();

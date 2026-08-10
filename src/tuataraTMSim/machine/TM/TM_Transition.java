@@ -72,7 +72,7 @@ public class TM_Transition extends Transition<TM_Action, TM_State, TM_Machine, T
     public Rectangle2D getInputSymbolBoundingBox(Graphics g)
     {
         Point2D mid = getActionLocation();
-        FontMetrics metric = g.getFontMetrics(g.getFont());
+        FontMetrics metric = g.getFontMetrics(PreAction.actionFont());
         int width = metric.charWidth('_');
         int height = metric.getAscent();
         return new Rectangle2D.Double(
@@ -88,7 +88,7 @@ public class TM_Transition extends Transition<TM_Action, TM_State, TM_Machine, T
     public Rectangle2D getOutputSymbolBoundingBox(Graphics g)
     {
         Point2D mid = getActionLocation();
-        FontMetrics metric = g.getFontMetrics(g.getFont());
+        FontMetrics metric = g.getFontMetrics(PreAction.actionFont());
         int width = metric.charWidth('_');
         int height = metric.getAscent();
         return new Rectangle2D.Double(

@@ -69,7 +69,7 @@ public class DFSA_Transition extends Transition<DFSA_Action, DFSA_State, DFSA_Ma
     public Rectangle2D getInputSymbolBoundingBox(Graphics g)
     {
         Point2D mid = getActionLocation();
-        FontMetrics metric = g.getFontMetrics(g.getFont());
+        FontMetrics metric = g.getFontMetrics(PreAction.actionFont());
         int width = metric.charWidth('_');
         int height = metric.getAscent();
         return new Rectangle2D.Double(
