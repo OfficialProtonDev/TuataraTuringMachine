@@ -692,7 +692,10 @@ public abstract class MachineGraphicsPanel<
                         ((TriggerAction) item.getAction()).triggerEvent(event);
                     }
 
-                    m_contextMenu.show(e.getComponent(), m_contextLocX, m_contextLocY);
+                    // The context location is kept in diagram coordinates, since that is what
+                    // placing a new state from this menu needs. Showing the menu, on the other
+                    // hand, positions it within the component, so it has to be mapped back.
+                    m_contextMenu.show(e.getComponent(), toView(m_contextLocX), toView(m_contextLocY));
                 }
             }
         });
@@ -1058,6 +1061,17 @@ public abstract class MachineGraphicsPanel<
     {
         Dimension d = super.getPreferredSize();
         return new Dimension((int)Math.ceil(d.width * m_zoom), (int)Math.ceil(d.height * m_zoom));
+    }
+
+    /**
+     * Map a diagram ordinate back into the view, for the few places which position a Swing
+     * component rather than draw on the canvas.
+     * @param diagram An ordinate in diagram coordinates.
+     * @return The corresponding ordinate in view coordinates.
+     */
+    protected int toView(int diagram)
+    {
+        return (int)Math.round(diagram * m_zoom);
     }
 
     /**
