@@ -22,7 +22,7 @@ are needed:
 To compile, clone the repo and run `make`:
 
 ```
-git clone https://github.com/mitchgrout/TuatararaTuringMachine.git
+git clone https://github.com/354ika/TuataraTuringMachine.git
 cd TuataraTuringMachine
 make
 ```
@@ -45,3 +45,5 @@ JavaDoc documentation can also be produced by running:
   floating-window MDI with tabbed machines, added a themed light/dark design system
   and vector iconography, regrouped the toolbar and menus, added a status bar and
   welcome screen, and redrew the machine canvas, tape and console
+
+* **354ika** - Adding the speed toggle functionality
