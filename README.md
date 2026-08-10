@@ -22,7 +22,7 @@ are needed:
 To compile, clone the repo and run `make`:
 
 ```
-git clone https://github.com/mitchgrout/TuataraTuringMachine.git
+git clone https://github.com/354ika/TuataraTuringMachine.git
 cd TuataraTuringMachine
 make
 ```
@@ -41,3 +41,5 @@ JavaDoc documentation can also be produced by running:
 * **Jimmy Foulds** - Initial design and implementation of Tuatara Turing Machine
 * **Mitchell Grout** - Redesign and rewrite of existing code, extended functionality
 * **Justin Bedggood** - Redesign of all sprites used in the program
+
+* **354ika** - Adding the speed toggle functionality
