@@ -69,7 +69,14 @@ public class TapeDisplayPanel extends JPanel
     /**
      * Height of the index ruler drawn above the tape, in pixels.
      */
-    protected static final int RULER_HEIGHT = 15;
+    protected static final int RULER_HEIGHT = 18;
+
+    /**
+     * Vertical space immediately above the tape reserved for the head marker, in pixels. Ruler
+     * labels are centred in the band above this rather than in the ruler as a whole, so that the
+     * marker never runs into the head's own index.
+     */
+    protected static final int HEAD_MARKER_ZONE = 7;
 
     /**
      * Horizontal padding around the entire tape.
@@ -250,7 +257,10 @@ public class TapeDisplayPanel extends JPanel
         Theme.Palette p = Theme.palette();
         g2d.setFont(Theme.ui(isHeadLocation? Font.BOLD : Font.PLAIN, 10));
         g2d.setColor(isHeadLocation? p.tapeHead : p.tapeRuler);
-        Theme.drawCentered(g2d, String.valueOf(index), x + CELL_WIDTH / 2.0, y - RULER_HEIGHT / 2.0 - 1);
+        // Centred in the ruler above the marker zone, so that every label -- including the head's,
+        // which is the only one drawn over a marker -- sits on a common baseline.
+        double centreY = y - HEAD_MARKER_ZONE - (RULER_HEIGHT - HEAD_MARKER_ZONE) / 2.0;
+        Theme.drawCentered(g2d, String.valueOf(index), x + CELL_WIDTH / 2.0, centreY);
     }
 
     /**
@@ -285,11 +295,12 @@ public class TapeDisplayPanel extends JPanel
 
         if (isHeadLocation)
         {
-            // A downward wedge above the cell, marking the head.
+            // A downward wedge above the cell, marking the head. It is confined to the marker zone
+            // so that it cannot reach the index printed above it.
             Path2D.Float wedge = new Path2D.Float();
             float cx = x + CELL_WIDTH / 2f;
-            wedge.moveTo(cx - 4, y - 5);
-            wedge.lineTo(cx + 4, y - 5);
+            wedge.moveTo(cx - 4, y - HEAD_MARKER_ZONE + 1);
+            wedge.lineTo(cx + 4, y - HEAD_MARKER_ZONE + 1);
             wedge.lineTo(cx, y - 1);
             wedge.closePath();
             g2d.setColor(p.tapeHead);
@@ -326,6 +337,39 @@ public class TapeDisplayPanel extends JPanel
     }
 
     /**
+     * Determine whether a symbol may be written to the tape. A symbol is writable when the machine
+     * being edited declares it in its alphabet, matching the restriction already applied when
+     * labelling transitions. With no machine open there is no alphabet to answer the question, so
+     * the tape accepts anything.
+     * @param c The symbol to test.
+     * @return true if the symbol may be written, false otherwise.
+     */
+    private boolean isWritable(char c)
+    {
+        MainWindow inst = MainWindow.getInstance();
+        MachineGraphicsPanel gfx = inst == null? null : inst.getSelectedGraphicsPanel();
+        return gfx == null || gfx.getAlphabet().containsSymbol(c);
+    }
+
+    /**
+     * Report an attempt to write a symbol outside the machine's alphabet, leaving the tape
+     * untouched.
+     * @param c The rejected symbol.
+     * @return false, as the tape is unchanged.
+     */
+    private boolean rejectSymbol(char c)
+    {
+        Toolkit.getDefaultToolkit().beep();
+        MainWindow inst = MainWindow.getInstance();
+        if (inst != null && inst.getConsole() != null)
+        {
+            inst.getConsole().logWarning(
+                    "'%c' is not in this machine's alphabet; configure the alphabet to use it", c);
+        }
+        return false;
+    }
+
+    /**
      * Handle a keystroke
      * @param e The generating event.
      * @return true if the event caused a change to the tape, false otherwise.
@@ -338,6 +382,10 @@ public class TapeDisplayPanel extends JPanel
 
        if (Character.isLetterOrDigit(c))
        {
+            if (!isWritable(c))
+            {
+                return rejectSymbol(c);
+            }
             getTape().write(c);
             getTape().headRight();
             handled = true;

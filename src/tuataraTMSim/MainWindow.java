@@ -501,10 +501,14 @@ public class MainWindow extends JFrame
             Machine machine = panel.getSimulator().getMachine();
             int states = machine.getStates().size();
             int transitions = machine.getTransitions().size();
-            m_statusBar.setMachineInfo(String.format("%s  ·  %d %s, %d %s",
+            // The zoom is only worth mentioning when it is not showing the diagram at actual size.
+            String zoom = Math.abs(panel.getZoom() - 1.0) < 1e-9? ""
+                        : String.format("  ·  %d%%", Math.round(panel.getZoom() * 100));
+            m_statusBar.setMachineInfo(String.format("%s  ·  %d %s, %d %s%s",
                         panel.getMachineType(),
                         states, states == 1? "state" : "states",
-                        transitions, transitions == 1? "transition" : "transitions"));
+                        transitions, transitions == 1? "transition" : "transitions",
+                        zoom));
 
             State current = panel.getSimulator().getCurrentState();
             if (!m_editingEnabled)
@@ -655,6 +659,11 @@ public class MainWindow extends JFrame
         m_showTapeItem = new JCheckBoxMenuItem(m_toggleTapeAction);
         m_showTapeItem.setSelected(true);
         viewMenu.add(m_showTapeItem);
+
+        viewMenu.addSeparator();
+        viewMenu.add(new JMenuItem(m_zoomInAction));
+        viewMenu.add(new JMenuItem(m_zoomOutAction));
+        viewMenu.add(new JMenuItem(m_zoomResetAction));
 
 
         // Mode menu
@@ -1118,7 +1127,13 @@ public class MainWindow extends JFrame
     {
         m_stopMachineAction.setEnabled(isEnabled);
         m_pauseExecutionAction.setEnabled(isEnabled);
-        
+
+        // Zooming stays available while a machine runs; it changes nothing about the machine.
+        m_zoomInAction.setEnabled(isEnabled);
+        m_zoomOutAction.setEnabled(isEnabled);
+        m_zoomResetAction.setEnabled(isEnabled);
+
+
         if (isEditingEnabled() || isEnabled == false)
         {
             m_validateAction.setEnabled(isEnabled);
@@ -2206,9 +2221,60 @@ public class MainWindow extends JFrame
         };
 
     /**
+     * Action for magnifying the diagram.
+     */
+    public final Action m_zoomInAction =
+        new MenuAction("Zoom In", Icons.get("zoom-in", MENU_ICON_SIZE), null,
+                       KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, KeyEvent.CTRL_DOWN_MASK))
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                MachineGraphicsPanel panel = getSelectedGraphicsPanel();
+                if (panel != null)
+                {
+                    panel.zoomIn();
+                }
+            }
+        };
+
+    /**
+     * Action for shrinking the diagram.
+     */
+    public final Action m_zoomOutAction =
+        new MenuAction("Zoom Out", Icons.get("zoom-out", MENU_ICON_SIZE), null,
+                       KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, KeyEvent.CTRL_DOWN_MASK))
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                MachineGraphicsPanel panel = getSelectedGraphicsPanel();
+                if (panel != null)
+                {
+                    panel.zoomOut();
+                }
+            }
+        };
+
+    /**
+     * Action for returning the diagram to actual size.
+     */
+    public final Action m_zoomResetAction =
+        new MenuAction("Actual Size", Icons.get("zoom-reset", MENU_ICON_SIZE), null,
+                       KeyStroke.getKeyStroke(KeyEvent.VK_0, KeyEvent.CTRL_DOWN_MASK))
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                MachineGraphicsPanel panel = getSelectedGraphicsPanel();
+                if (panel != null)
+                {
+                    panel.resetZoom();
+                }
+            }
+        };
+
+    /**
      * Action for undoing a command.
      */
-    public final Action m_undoAction = 
+    public final Action m_undoAction =
         new MenuAction("Undo", Icons.get("undo", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.CTRL_DOWN_MASK))
         {

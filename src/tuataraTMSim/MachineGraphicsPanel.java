@@ -55,6 +55,21 @@ public abstract class MachineGraphicsPanel<
         new BasicStroke( 1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[] { 4.0f, 3.0f }, 0.0f);
 
     /**
+     * Smallest permitted zoom factor.
+     */
+    public static final double ZOOM_MIN = 0.25;
+
+    /**
+     * Largest permitted zoom factor.
+     */
+    public static final double ZOOM_MAX = 4.0;
+
+    /**
+     * Ratio between adjacent zoom steps.
+     */
+    public static final double ZOOM_STEP = 1.2;
+
+    /**
      * Distance in pixels between dots on the canvas grid.
      */
     protected static final int GRID_SPACING = 24;
@@ -405,11 +420,15 @@ public abstract class MachineGraphicsPanel<
      */
     protected void paintComponent(Graphics g)
     {
-        int w = getWidth();
-        int h = getHeight();
-
         Graphics2D g2d = Theme.prepare(g);
         Theme.Palette p = Theme.palette();
+
+        // Everything below is expressed in unscaled diagram coordinates; the zoom is applied once,
+        // here, and mouse input is mapped back through it in toDiagram.
+        g2d.scale(m_zoom, m_zoom);
+
+        int w = (int)Math.ceil(getWidth() / m_zoom);
+        int h = (int)Math.ceil(getHeight() / m_zoom);
 
         // Fill background
         g2d.setColor(p.canvas);
@@ -500,6 +519,27 @@ public abstract class MachineGraphicsPanel<
     protected void initialization()
     {
         setFocusable(false);
+
+        // Ctrl and the wheel zooms about the pointer; a plain wheel belongs to the scroll pane, so
+        // pass it up rather than swallowing it.
+        addMouseWheelListener(new MouseWheelListener()
+        {
+            public void mouseWheelMoved(MouseWheelEvent e)
+            {
+                if (!e.isControlDown())
+                {
+                    Container parent = getParent();
+                    if (parent != null)
+                    {
+                        parent.dispatchEvent(SwingUtilities.convertMouseEvent(
+                                    MachineGraphicsPanel.this, e, parent));
+                    }
+                    return;
+                }
+                double factor = Math.pow(ZOOM_STEP, -e.getWheelRotation());
+                setZoom(m_zoom * factor, e.getPoint());
+            }
+        });
 
         // Set up event listeners and their corresponding actions.
         addMouseListener(new MouseAdapter()
@@ -917,7 +957,196 @@ public abstract class MachineGraphicsPanel<
         updateSelectedSymbolBoundingBox();
     }
 
-    /** 
+    // ------------------------------------------------------------------ Zoom and pan
+
+    /**
+     * Get the current zoom factor, where 1.0 is actual size.
+     * @return The zoom factor.
+     */
+    public double getZoom()
+    {
+        return m_zoom;
+    }
+
+    /**
+     * Set the zoom factor, keeping a given point of the diagram pinned under the same place on
+     * screen so that zooming does not throw away the reader's place.
+     * @param zoom The requested factor, clamped to the permitted range.
+     * @param anchor The point in view coordinates to hold steady, or null to hold the centre of the
+     *               visible area.
+     */
+    public void setZoom(double zoom, Point anchor)
+    {
+        double target = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom));
+        if (Math.abs(target - m_zoom) < 1e-9)
+        {
+            return;
+        }
+
+        JViewport vp = (JViewport)SwingUtilities.getAncestorOfClass(JViewport.class, this);
+        Point view = vp == null? null : vp.getViewPosition();
+        if (anchor == null && vp != null)
+        {
+            anchor = new Point(view.x + vp.getWidth() / 2, view.y + vp.getHeight() / 2);
+        }
+
+        // The diagram coordinate sitting under the anchor, which must not move.
+        double worldX = anchor == null? 0 : anchor.x / m_zoom;
+        double worldY = anchor == null? 0 : anchor.y / m_zoom;
+
+        m_zoom = target;
+        revalidate();
+
+        if (vp != null && anchor != null)
+        {
+            int offsetX = anchor.x - view.x;
+            int offsetY = anchor.y - view.y;
+            Dimension size = getPreferredSize();
+            int x = (int)Math.round(worldX * m_zoom) - offsetX;
+            int y = (int)Math.round(worldY * m_zoom) - offsetY;
+            x = Math.max(0, Math.min(x, size.width - vp.getWidth()));
+            y = Math.max(0, Math.min(y, size.height - vp.getHeight()));
+            // The viewport still holds the old geometry until layout runs, so move it afterwards.
+            final Point destination = new Point(Math.max(0, x), Math.max(0, y));
+            final JViewport port = vp;
+            SwingUtilities.invokeLater(new Runnable()
+            {
+                public void run()
+                {
+                    port.setViewPosition(destination);
+                }
+            });
+        }
+        repaint();
+        MainWindow inst = MainWindow.getInstance();
+        if (inst != null)
+        {
+            inst.refreshStatus();
+        }
+    }
+
+    /**
+     * Magnify the diagram by one step, about the centre of the visible area.
+     */
+    public void zoomIn()
+    {
+        setZoom(m_zoom * ZOOM_STEP, null);
+    }
+
+    /**
+     * Shrink the diagram by one step, about the centre of the visible area.
+     */
+    public void zoomOut()
+    {
+        setZoom(m_zoom / ZOOM_STEP, null);
+    }
+
+    /**
+     * Return the diagram to actual size.
+     */
+    public void resetZoom()
+    {
+        setZoom(1.0, null);
+    }
+
+    /**
+     * Scale the panel's footprint with the zoom, so that the enclosing scroll pane offers the right
+     * amount of scrolling for the magnified diagram.
+     * @return The preferred size of this panel.
+     */
+    public Dimension getPreferredSize()
+    {
+        Dimension d = super.getPreferredSize();
+        return new Dimension((int)Math.ceil(d.width * m_zoom), (int)Math.ceil(d.height * m_zoom));
+    }
+
+    /**
+     * Rewrite a mouse event's coordinates from the view into the diagram, so that everything
+     * downstream -- hit testing, dragging, marquee selection -- keeps working in unscaled diagram
+     * coordinates and needs no knowledge of the zoom.
+     * @param e The event to rewrite in place.
+     * @return The same event.
+     */
+    private MouseEvent toDiagram(MouseEvent e)
+    {
+        if (m_zoom != 1.0)
+        {
+            e.translatePoint((int)Math.round(e.getX() / m_zoom) - e.getX(),
+                             (int)Math.round(e.getY() / m_zoom) - e.getY());
+        }
+        return e;
+    }
+
+    /**
+     * Pan the view by a drag of the middle mouse button, which is otherwise unused by the editor.
+     * @param e The generating event.
+     * @return true if the event was used for panning and should not be handled further.
+     */
+    private boolean handlePan(MouseEvent e)
+    {
+        if (e.getID() == MouseEvent.MOUSE_PRESSED && e.getButton() == MouseEvent.BUTTON2)
+        {
+            m_panFrom = e.getPoint();
+            setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+            return true;
+        }
+        if (e.getID() == MouseEvent.MOUSE_RELEASED && m_panFrom != null)
+        {
+            m_panFrom = null;
+            setCursor(Cursor.getDefaultCursor());
+            return true;
+        }
+        if (e.getID() == MouseEvent.MOUSE_DRAGGED && m_panFrom != null)
+        {
+            JViewport vp = (JViewport)SwingUtilities.getAncestorOfClass(JViewport.class, this);
+            if (vp != null)
+            {
+                Point p = vp.getViewPosition();
+                p.translate(m_panFrom.x - e.getX(), m_panFrom.y - e.getY());
+                p.x = Math.max(0, Math.min(p.x, getPreferredSize().width - vp.getWidth()));
+                p.y = Math.max(0, Math.min(p.y, getPreferredSize().height - vp.getHeight()));
+                vp.setViewPosition(p);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    protected void processMouseEvent(MouseEvent e)
+    {
+        if (handlePan(e))
+        {
+            return;
+        }
+        super.processMouseEvent(toDiagram(e));
+    }
+
+    protected void processMouseMotionEvent(MouseEvent e)
+    {
+        if (handlePan(e))
+        {
+            return;
+        }
+        super.processMouseMotionEvent(toDiagram(e));
+    }
+
+    /**
+     * Move the selection between the two halves of the selected transition's label, so that the
+     * input and output symbols can be edited in turn without reaching for the mouse.
+     * @return true if the selection moved, false if no symbol is currently selected.
+     */
+    protected boolean toggleSelectedSymbol()
+    {
+        if (m_selectedSymbolBoundingBox == null || m_selectedTransition == null)
+        {
+            return false;
+        }
+        m_inputSymbolSelected = !m_inputSymbolSelected;
+        updateSelectedSymbolBoundingBox();
+        return true;
+    }
+
+    /**
      * Move the bounding box for the transition symbol currently selected by the user, if any, in
      * the case where a transition has been moved.
      */
@@ -1694,6 +1923,16 @@ public abstract class MachineGraphicsPanel<
      * Set of labels in use.
      */
     protected HashSet<String> m_labelsUsed = new HashSet<String>();
+
+    /**
+     * Current zoom factor, where 1.0 is actual size.
+     */
+    protected double m_zoom = 1.0;
+
+    /**
+     * Point the middle mouse button was last seen at while panning, or null when not panning.
+     */
+    protected Point m_panFrom = null;
 
     /**
      * Bounding box of the currently selected transition action.

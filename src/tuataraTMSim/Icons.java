@@ -518,6 +518,25 @@ public final class Icons
             g.draw(circle(12, 12, 8.8));
             glyph(g, "?", 12, 12.4, 12);
         }
+        else if (name.equals("zoom-in"))
+        {
+            g.draw(circle(10.5, 10.5, 6.5));
+            g.draw(line(15.4, 15.4, 20.5, 20.5));
+            g.draw(line(7.5, 10.5, 13.5, 10.5));
+            g.draw(line(10.5, 7.5, 10.5, 13.5));
+        }
+        else if (name.equals("zoom-out"))
+        {
+            g.draw(circle(10.5, 10.5, 6.5));
+            g.draw(line(15.4, 15.4, 20.5, 20.5));
+            g.draw(line(7.5, 10.5, 13.5, 10.5));
+        }
+        else if (name.equals("zoom-reset"))
+        {
+            g.draw(circle(10.5, 10.5, 6.5));
+            g.draw(line(15.4, 15.4, 20.5, 20.5));
+            glyph(g, "1", 10.5, 10.9, 9);
+        }
         else if (name.equals("light"))
         {
             g.draw(circle(12, 12, 4.4));

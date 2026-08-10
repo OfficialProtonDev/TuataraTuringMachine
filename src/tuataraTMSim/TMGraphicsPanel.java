@@ -274,6 +274,14 @@ public class TMGraphicsPanel
             char c = e.getKeyChar();
             c = Character.toUpperCase(c);
 
+            // Tab moves between the input and output halves of the label, so that both can be typed
+            // in one go. Consumed so that it does not also drive focus traversal.
+            if (c == '\t' || e.getKeyCode() == KeyEvent.VK_TAB)
+            {
+                e.consume();
+                return toggleSelectedSymbol();
+            }
+
             if (m_inputSymbolSelected)
             {
                 if (e.isActionKey() && e.getKeyCode() == KeyEvent.VK_LEFT)
