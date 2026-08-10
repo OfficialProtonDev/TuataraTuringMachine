@@ -239,9 +239,9 @@ public class TMGraphicsPanel
     public void setFrame(MachineInternalFrame iFrame)
     {
         super.setFrame(iFrame);
-        iFrame.addInternalFrameListener(new InternalFrameAdapter()
+        iFrame.addCloseListener(new Runnable()
         {
-            public void internalFrameClosed(InternalFrameEvent e)
+            public void run()
             {
                 // If we have an empty machine, destroy this frame
                 if (m_parent != null && m_sim.getMachine().getStates().size() == 0)
@@ -273,6 +273,14 @@ public class TMGraphicsPanel
             // There is a transition action currently selected by the user.
             char c = e.getKeyChar();
             c = Character.toUpperCase(c);
+
+            // Tab moves between the input and output halves of the label, so that both can be typed
+            // in one go. Consumed so that it does not also drive focus traversal.
+            if (c == '\t' || e.getKeyCode() == KeyEvent.VK_TAB)
+            {
+                e.consume();
+                return toggleSelectedSymbol();
+            }
 
             if (m_inputSymbolSelected)
             {

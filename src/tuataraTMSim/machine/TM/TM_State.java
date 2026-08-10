@@ -79,12 +79,13 @@ public class TM_State extends State<TM_Action, TM_Transition, TM_Machine, TM_Sim
     }
 
     /**
-     * Get the color to paint this object.
+     * Get the color to paint this object. States which contain a submachine are given a distinct
+     * fill, so that they can be told apart from ordinary states at a glance.
      * @return The color to paint this object.
      */
     protected Paint getPaint()
     {
-        return m_subMachine != null? new Color(100, 100, 255) : super.getPaint();
+        return m_subMachine != null? tuataraTMSim.Theme.palette().accentSoft : super.getPaint();
     }
 
     /**

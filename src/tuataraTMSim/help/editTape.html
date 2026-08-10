@@ -2,10 +2,10 @@
 <h2> Editing the Tape </h2>
 
 <p>
-The tape is displayed in the bottom portion of the window.  The darkened cell represents the
-location of the read/write head, and the '*' symbol indicates that the first cell of the tape is the
-cell immediately to the right.  The tape extends infinitely in the rightwards direction (at least,
-as far as the memory limitations of the system will allow).
+The tape is displayed in the bottom portion of the window.  The highlighted cell, marked with a
+wedge and with its index printed above it, is the location of the read/write head; the bracket at
+the left-hand end marks the first cell of the tape.  The tape extends infinitely in the rightwards
+direction (at least, as far as the memory limitations of the system will allow).
 </p>
 
 <p>
@@ -35,6 +35,14 @@ The read/write head acts as a cursor for you to modify the tape with.  Simply ty
 your keyboard to have the corresponding symbol appear on the tape in the location of the read/write
 head.  To type a blank character, press spacebar or '_'.  The backspace key will replace the
 character under the read/write head with a blank character, and move left by one.
+</p>
+
+<p>
+Only symbols belonging to the alphabet of the machine you are working on may be written; anything
+else is refused, and the console explains why.  This is the same restriction that applies when
+labelling a transition, and it keeps the tape from holding input the machine has no way to read.
+Blanks are always allowed, so that a cell can be cleared whatever the alphabet.  Use
+<i>Configuration > Configure Alphabet</i> to declare the symbols a machine may use.
 </p>
 
 <p>

@@ -89,6 +89,7 @@ public class ExecutionTimerTask extends TimerTask
             sim.step();
             m_panel.repaint();
             m_tapeDisp.repaint();
+            inst.refreshStatus();
             if (sim.isHalted())
             {
                 inst.getConsole().logPartial(m_panel, sim.getConfiguration());
@@ -112,6 +113,7 @@ public class ExecutionTimerTask extends TimerTask
                     "Simulation finished: %s", msg);
             m_panel.getSimulator().resetMachine();
             m_panel.repaint();
+            inst.refreshStatus();
         }
         // Machine halted unexpectedly
         catch (Exception e)
@@ -126,6 +128,7 @@ public class ExecutionTimerTask extends TimerTask
                     "Simulation halted unexpectedly: %s", msg);
         }
         inst.repaint();
+        inst.refreshStatus();
     }
    
     /**

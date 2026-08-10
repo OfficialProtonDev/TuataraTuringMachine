@@ -1,6 +1,11 @@
 # Compiler to use
 CC=javac
 
+# Bytecode level to target. Without this, javac emits class files for whatever JDK happens to be
+# installed, and the resulting archive dies with an UnsupportedClassVersionError on any older JRE --
+# including the one Windows typically registers for double-clicking a .jar.
+RELEASE=8
+
 # Directory to find source files
 SOURCE_DIR=src
 
@@ -29,14 +34,14 @@ all: gui
 # Compile everything such that the GUI can be run, but do not archive.
 gui:
 	mkdir -p $(BUILD_DIR)
-	$(CC) -d $(BUILD_DIR) `find $(SOURCE_DIR) -name "*.java"`
+	$(CC) --release $(RELEASE) -Xlint:-options -d $(BUILD_DIR) `find $(SOURCE_DIR) -name "*.java"`
 	cp -r $(SOURCE_DIR)/tuataraTMSim/$(IMG_DIR) $(BUILD_DIR)/tuataraTMSim/$(IMG_DIR)
 	cp -r $(SOURCE_DIR)/tuataraTMSim/$(HTML_DIR) $(BUILD_DIR)/tuataraTMSim/$(HTML_DIR)
 
 # Compile everything such that the GUI can be run, and archive the $(BUILD_DIR) directory
 jar:
 	make gui
-	cd $(BUILD_DIR) && jar cvfe $(FILE_JAR) $(MAIN_FILE) `find .`
+	cd $(BUILD_DIR) && jar cvfe $(FILE_JAR) $(MAIN_FILE) `find . -not -name "*.jar"`
 
 # Generate only javadoc documentation for the project
 docs:

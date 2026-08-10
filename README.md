@@ -8,7 +8,7 @@ a more generic framework to allow the easy addition of new functionality.
 
 ## Getting Started
 Precompiled releases in the form of JAR archives are available under *Releases*.
-Running Tuatara Turing Machine requires the Java JRE (version 1.5 or later). To
+Running Tuatara Turing Machine requires the Java JRE (version 8 or later). To
 run Tuatara, either double-click the JAR archive, or run 
 
 `java -jar TuataraTuringMachine.jar` 
@@ -41,5 +41,9 @@ JavaDoc documentation can also be produced by running:
 * **Jimmy Foulds** - Initial design and implementation of Tuatara Turing Machine
 * **Mitchell Grout** - Redesign and rewrite of existing code, extended functionality
 * **Justin Bedggood** - Redesign of all sprites used in the program
+* **OfficialProtonDev** (with Claude) - Modernised the user interface: replaced the
+  floating-window MDI with tabbed machines, added a themed light/dark design system
+  and vector iconography, regrouped the toolbar and menus, added a status bar and
+  welcome screen, and redrew the machine canvas, tape and console
 
 * **354ika** - Adding the speed toggle functionality
