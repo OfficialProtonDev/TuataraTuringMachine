@@ -28,6 +28,7 @@ package tuataraTMSim;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -53,6 +54,12 @@ public abstract class MachineGraphicsPanel<
      */
     protected final BasicStroke DASHED_STROKE =
         new BasicStroke( 1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[] { 4.0f, 3.0f }, 0.0f);
+
+    /**
+     * Width of the pre-rendered grid patch, in grid cells. Larger patches mean fewer blits per
+     * repaint at the cost of a little more memory.
+     */
+    protected static final int PATCH_CELLS = 12;
 
     /**
      * Smallest permitted zoom factor.
@@ -423,17 +430,12 @@ public abstract class MachineGraphicsPanel<
         Graphics2D g2d = Theme.prepare(g);
         Theme.Palette p = Theme.palette();
 
+        // Background and grid are laid down in device pixels, before the zoom is applied.
+        paintBackdrop(g2d);
+
         // Everything below is expressed in unscaled diagram coordinates; the zoom is applied once,
         // here, and mouse input is mapped back through it in toDiagram.
         g2d.scale(m_zoom, m_zoom);
-
-        int w = (int)Math.ceil(getWidth() / m_zoom);
-        int h = (int)Math.ceil(getHeight() / m_zoom);
-
-        // Fill background
-        g2d.setColor(p.canvas);
-        g2d.fillRect(0, 0, w, h);
-        paintGrid(g2d, w, h);
         g2d.setFont(Global.FONT_MONOSPACE);
 
         STATE currentState = getSimulator().getCurrentState();
@@ -495,20 +497,61 @@ public abstract class MachineGraphicsPanel<
     }
 
     /**
-     * Paint the canvas dot grid, which gives the otherwise featureless canvas a sense of scale and
-     * makes it obvious that states can be dragged around.
+     * Paint the canvas background and its dot grid, which give the otherwise featureless canvas a
+     * sense of scale and make it obvious that states can be dragged around. Must be called before
+     * the zoom transform is applied.
      * @param g2d The graphics object to render onto.
-     * @param w The width of the canvas.
-     * @param h The height of the canvas.
      */
-    protected void paintGrid(Graphics2D g2d, int w, int h)
+    protected void paintBackdrop(Graphics2D g2d)
     {
-        g2d.setColor(Theme.palette().canvasGrid);
-        for (int x = GRID_SPACING; x < w; x += GRID_SPACING)
+        // The background and its dots are drawn by blitting a pre-rendered patch across the damaged
+        // region. Filling a dot at a time meant thousands of one-pixel draws per repaint of the
+        // 2000x2000 canvas, most of them off-screen: cheap under an accelerated pipeline, but a
+        // flood of requests for an X server while a machine runs or a state is dragged.
+        //
+        // This runs before the zoom is applied, in device pixels, so that the dots stay a crisp
+        // single pixel instead of being resampled. Their spacing still tracks the zoom, so the grid
+        // looks as it did.
+        Theme.Palette p = Theme.palette();
+        int spacing = Math.max(4, (int)Math.round(GRID_SPACING * m_zoom));
+
+        if (m_gridPatch == null || m_gridSpacing != spacing
+                || !p.canvas.equals(m_canvasColour) || !p.canvasGrid.equals(m_gridColour))
         {
-            for (int y = GRID_SPACING; y < h; y += GRID_SPACING)
+            int side = spacing * PATCH_CELLS;
+            BufferedImage patch = new BufferedImage(side, side, BufferedImage.TYPE_INT_RGB);
+            Graphics2D pg = patch.createGraphics();
+            pg.setColor(p.canvas);
+            pg.fillRect(0, 0, side, side);
+            pg.setColor(p.canvasGrid);
+            for (int x = 0; x < side; x += spacing)
             {
-                g2d.fillRect(x, y, 1, 1);
+                for (int y = 0; y < side; y += spacing)
+                {
+                    pg.fillRect(x, y, 1, 1);
+                }
+            }
+            pg.dispose();
+
+            m_gridPatch = patch;
+            m_gridSpacing = spacing;
+            m_canvasColour = p.canvas;
+            m_gridColour = p.canvasGrid;
+        }
+
+        Rectangle clip = g2d.getClipBounds();
+        if (clip == null)
+        {
+            clip = new Rectangle(0, 0, getWidth(), getHeight());
+        }
+        int side = m_gridPatch.getWidth();
+        int startX = Math.floorDiv(clip.x, side) * side;
+        int startY = Math.floorDiv(clip.y, side) * side;
+        for (int x = startX; x < clip.x + clip.width; x += side)
+        {
+            for (int y = startY; y < clip.y + clip.height; y += side)
+            {
+                g2d.drawImage(m_gridPatch, x, y, null);
             }
         }
     }
@@ -602,7 +645,7 @@ public abstract class MachineGraphicsPanel<
                 // Update modified if anything is clicked on
                 MACHINE mac = getSimulator().getMachine();
                 if (mac.getStateClickedOn(e.getX(), e.getY())!= null ||
-                    mac.getTransitionClickedOn(e.getX(), e.getY(), getGraphics()) != null)
+                    mac.getTransitionClickedOn(e.getX(), e.getY(), measuringGraphics()) != null)
                 {
                     setModifiedSinceSave(true);
                 }
@@ -669,7 +712,7 @@ public abstract class MachineGraphicsPanel<
                     }
                     // Otherwise try to grab a transition
                     else if ((m_contextTransition = getSimulator().getMachine().getTransitionClickedOn(
-                                    e.getX(), e.getY(), getGraphics())) != null)
+                                    e.getX(), e.getY(), measuringGraphics())) != null)
                     {
                         event |= TRIGGER_TRANSITION;
                     }
@@ -753,11 +796,11 @@ public abstract class MachineGraphicsPanel<
      */
     protected boolean selectCharacterByClicking(MouseEvent e)
     {
-        TRANSITION transitionClicked = getSimulator().getMachine().getTransitionClickedOn(e.getX(), e.getY(), getGraphics());
+        TRANSITION transitionClicked = getSimulator().getMachine().getTransitionClickedOn(e.getX(), e.getY(), measuringGraphics());
         if (transitionClicked != null)
         {
-            Rectangle2D s1 = transitionClicked.getInputSymbolBoundingBox(getGraphics());
-            Rectangle2D s2 = transitionClicked.getOutputSymbolBoundingBox(getGraphics());
+            Rectangle2D s1 = transitionClicked.getInputSymbolBoundingBox(measuringGraphics());
+            Rectangle2D s2 = transitionClicked.getOutputSymbolBoundingBox(measuringGraphics());
             if (s1.contains(e.getX(), e.getY()))
             {
                 m_selectedSymbolBoundingBox = s1;
@@ -827,7 +870,7 @@ public abstract class MachineGraphicsPanel<
         }
         else
         {
-            m_mousePressedTransition = getSimulator().getMachine().getTransitionClickedOn(e.getX(), e.getY(), getGraphics());
+            m_mousePressedTransition = getSimulator().getMachine().getTransitionClickedOn(e.getX(), e.getY(), measuringGraphics());
             if (m_mousePressedTransition != null) // Mouse press on a transition
             {
                 setModifiedSinceSave(true);
@@ -1064,6 +1107,25 @@ public abstract class MachineGraphicsPanel<
     }
 
     /**
+     * A graphics context used solely to measure text while hit testing. Component.getGraphics
+     * allocates a fresh context per call, and these were never disposed; under X11 that leaks a
+     * server-side resource on every mouse movement over the canvas. Hit testing needs nothing from
+     * the screen -- each caller passes the font it cares about and reads only its metrics -- so one
+     * scratch context is kept for the life of the panel instead. Its rendering hints are left at
+     * their defaults, matching what Component.getGraphics returned, so measurements are unchanged.
+     * @return A graphics context for measurement. It must not be disposed.
+     */
+    protected Graphics measuringGraphics()
+    {
+        if (m_measuringGraphics == null)
+        {
+            m_measuringGraphics =
+                new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
+        }
+        return m_measuringGraphics;
+    }
+
+    /**
      * Map a diagram ordinate back into the view, for the few places which position a Swing
      * component rather than draw on the canvas.
      * @param diagram An ordinate in diagram coordinates.
@@ -1172,11 +1234,11 @@ public abstract class MachineGraphicsPanel<
         }
         if (m_inputSymbolSelected)
         {
-            m_selectedSymbolBoundingBox = m_selectedTransition.getInputSymbolBoundingBox(getGraphics());
+            m_selectedSymbolBoundingBox = m_selectedTransition.getInputSymbolBoundingBox(measuringGraphics());
         }
         else
         {
-            m_selectedSymbolBoundingBox = m_selectedTransition.getOutputSymbolBoundingBox(getGraphics());
+            m_selectedSymbolBoundingBox = m_selectedTransition.getOutputSymbolBoundingBox(measuringGraphics());
         }
     }
 
@@ -1613,7 +1675,7 @@ public abstract class MachineGraphicsPanel<
         else
         {
             TRANSITION transitionClickedOn = m_sim.getMachine()
-                .getTransitionClickedOn(e.getX(), e.getY(), getGraphics());
+                .getTransitionClickedOn(e.getX(), e.getY(), measuringGraphics());
             if (transitionClickedOn != null)
             {
                 deleteTransition(transitionClickedOn);
@@ -1937,6 +1999,32 @@ public abstract class MachineGraphicsPanel<
      * Set of labels in use.
      */
     protected HashSet<String> m_labelsUsed = new HashSet<String>();
+
+    /**
+     * Scratch context used to measure text while hit testing, or null before it is first needed.
+     */
+    protected Graphics2D m_measuringGraphics = null;
+
+    /**
+     * Pre-rendered block of background and grid dots, blitted across the canvas, or null before it
+     * is first built.
+     */
+    protected BufferedImage m_gridPatch = null;
+
+    /**
+     * Dot spacing in device pixels that {@link #m_gridPatch} was built for.
+     */
+    protected int m_gridSpacing = 0;
+
+    /**
+     * Grid colour {@link #m_gridPatch} was built for, so that it is rebuilt when the theme changes.
+     */
+    protected Color m_gridColour = null;
+
+    /**
+     * Canvas colour {@link #m_gridPatch} was built for.
+     */
+    protected Color m_canvasColour = null;
 
     /**
      * Current zoom factor, where 1.0 is actual size.
