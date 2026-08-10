@@ -22,7 +22,7 @@ are needed:
 To compile, clone the repo and run `make`:
 
 ```
-git clone https://github.com/mitchgrout/TuatararaTuringMachine.git
+git clone https://github.com/mitchgrout/TuataraTuringMachine.git
 cd TuataraTuringMachine
 make
 ```
