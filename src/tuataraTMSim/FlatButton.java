@@ -157,6 +157,12 @@ public class FlatButton extends JButton
      */
     public void setIconName(String iconName)
     {
+        // Guarded, so that repeatedly setting the same icon does not leave the button permanently
+        // dirty and drive an endless repaint.
+        if (m_iconName == null? iconName == null : m_iconName.equals(iconName))
+        {
+            return;
+        }
         m_iconName = iconName;
         repaint();
     }

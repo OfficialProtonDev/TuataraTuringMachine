@@ -67,6 +67,30 @@ public class MachineTabPane extends JTabbedPane
                 repaint();
             }
         });
+
+        // Tab styling depends on which tab is selected, so it is re-applied when that changes.
+        addChangeListener(new javax.swing.event.ChangeListener()
+        {
+            public void stateChanged(javax.swing.event.ChangeEvent e)
+            {
+                refreshAllTabs();
+            }
+        });
+    }
+
+    /**
+     * Re-apply styling to every tab header.
+     */
+    public void refreshAllTabs()
+    {
+        for (int i = 0; i < getTabCount(); i++)
+        {
+            Component c = getTabComponentAt(i);
+            if (c instanceof TabHeader)
+            {
+                ((TabHeader)c).applyTheme();
+            }
+        }
     }
 
     /**
@@ -186,26 +210,34 @@ public class MachineTabPane extends JTabbedPane
         {
             Theme.Palette p = Theme.palette();
             boolean selected = getSelectedComponent() == m_doc;
-
-            m_icon.setIcon(Icons.get(m_iconName, 14, selected? p.accent : p.textMuted));
-            m_label.setForeground(selected? p.text : p.textMuted);
-            m_label.setFont(Theme.ui(selected? Font.BOLD : Font.PLAIN, 13));
-
             boolean showDot = m_doc.isModified() && !m_close.getModel().isRollover();
+
+            // Every assignment below is guarded, because the setters behind them repaint whenever
+            // they are handed a value -- setIcon compares icons by reference, and a fresh icon is
+            // built on each call -- so applying the same styling twice would keep the component
+            // permanently dirty.
+            Color foreground = selected? p.text : p.textMuted;
+            if (m_appliedSelected == null || m_appliedSelected.booleanValue() != selected
+                    || !foreground.equals(m_appliedForeground))
+            {
+                m_icon.setIcon(Icons.get(m_iconName, 14, selected? p.accent : p.textMuted));
+                m_label.setForeground(foreground);
+                m_label.setFont(Theme.ui(selected? Font.BOLD : Font.PLAIN, 13));
+                m_appliedSelected = Boolean.valueOf(selected);
+                m_appliedForeground = foreground;
+            }
+
             m_close.setIconName(showDot? "dot" : "close");
             m_close.setToolTipText(m_doc.isModified()
                     ? "Close this machine (unsaved changes)" : "Close this machine");
         }
 
-        /**
-         * Render the tab header, keeping its styling in step with the selected tab.
-         * @param g The graphics object to render onto.
-         */
-        protected void paintComponent(Graphics g)
-        {
-            applyTheme();
-            super.paintComponent(g);
-        }
+        // Styling is deliberately NOT applied from paintComponent. Doing so mutated the child
+        // components while painting, and since Icons.get returns a fresh icon each call and
+        // JLabel.setIcon compares by reference, every paint scheduled another one: an endless
+        // redraw for as long as a tab existed, multiplying with the number of open machines.
+        // applyTheme is instead driven by the things it actually depends on -- selection, the
+        // modified marker, hover, and the theme.
 
         /**
          * The document this tab represents.
@@ -231,6 +263,16 @@ public class MachineTabPane extends JTabbedPane
          * Name of the machine type icon.
          */
         private String m_iconName = "machine";
+
+        /**
+         * Selected state the styling was last applied for, or null if it has never been applied.
+         */
+        private Boolean m_appliedSelected = null;
+
+        /**
+         * Label colour the styling was last applied for.
+         */
+        private Color m_appliedForeground = null;
     }
 
     /**
