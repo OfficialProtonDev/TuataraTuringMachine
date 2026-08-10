@@ -48,6 +48,16 @@ public class ConsolePanel extends JPanel
     protected static final String SPLASH_TEXT = "Tuatara Turing Machine Simulator " + Global.VERSION;
 
     /**
+     * Longest log kept, in characters. Older output is discarded beyond this.
+     */
+    protected static final int MAX_CHARACTERS = 120000;
+
+    /**
+     * Number of configurations recorded on one line before the trace wraps onto the next.
+     */
+    protected static final int CONFIGURATIONS_PER_LINE = 8;
+
+    /**
      * Severity of a logged message.
      */
     public enum Level
@@ -200,10 +210,44 @@ public class ConsolePanel extends JPanel
         try
         {
             m_doc.insertString(m_doc.getLength(), String.format(fmt, args), m_text.getStyle(styleName));
+            trim();
         }
         catch (BadLocationException e)
         {
             // The insert is always at the end of the document, so this cannot occur.
+        }
+    }
+
+    /**
+     * Discard the oldest part of the log once it grows past {@link #MAX_CHARACTERS}. A machine left
+     * to run records a configuration per step without limit, and the cost of laying the document
+     * out climbs with its length, so an unbounded log makes the whole program crawl exactly when
+     * the trace is longest.
+     */
+    private void trim()
+    {
+        int excess = m_doc.getLength() - MAX_CHARACTERS;
+        if (excess <= 0)
+        {
+            return;
+        }
+        try
+        {
+            // Cut back further than strictly needed, so this runs rarely rather than on almost
+            // every append, and drop the remainder of the partial line so the log does not open
+            // mid-configuration.
+            int cut = excess + MAX_CHARACTERS / 4;
+            String head = m_doc.getText(cut, Math.min(512, m_doc.getLength() - cut));
+            int newline = head.indexOf('\n');
+            if (newline >= 0)
+            {
+                cut += newline + 1;
+            }
+            m_doc.remove(0, cut);
+        }
+        catch (BadLocationException e)
+        {
+            // Bounded by the document length above, so this cannot occur.
         }
     }
 
@@ -228,7 +272,15 @@ public class ConsolePanel extends JPanel
         // Last message was a partial message; did the given panel send it?
         else if (m_panel == panel)
         {
-            // Continue logging on the same line
+            // Continue logging on the same line, but not indefinitely: a run of any length would
+            // otherwise become one enormous paragraph, and laying that out gets slower the longer
+            // it grows. Wrapping onto a fresh line every so often keeps the cost flat and the
+            // trace easier to follow.
+            if (++m_partialCount % CONFIGURATIONS_PER_LINE == 0)
+            {
+                append("trace", "\n");
+                append("timestamp", "%s  ", timestamp());
+            }
             append("trace", fmt, args);
         }
         // Last message was partial, and the panel did not send it.
@@ -342,4 +394,9 @@ public class ConsolePanel extends JPanel
      * Whether or not we are waiting for more information to add to the log.
      */
     private boolean m_partial;
+
+    /**
+     * Configurations written on the current trace line.
+     */
+    private int m_partialCount;
 }

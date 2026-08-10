@@ -756,6 +756,13 @@ public class MainWindow extends JFrame
         machineMenu.add(m_zeroDelayExecuteSpeed);
         executeSpeedMenuItems.add(m_zeroDelayExecuteSpeed);
 
+        // Held onto so that choosing a speed anywhere can show it selected here too.
+        m_speedItems = new JRadioButtonMenuItem[]
+        {
+            m_slowExecuteSpeed, m_mediumExecuteSpeed, m_fastExecuteSpeed,
+            m_superFastExecuteSpeed, m_ultraFastExecuteSpeed, m_zeroDelayExecuteSpeed
+        };
+
         m_fastExecuteSpeed.setSelected(true);
         m_executionDelayTime = FAST_EXECUTE_SPEED_DELAY;
         
@@ -925,7 +932,8 @@ public class MainWindow extends JFrame
     private JComponent createSpeedSelector()
     {
         m_speedSelector = new JComboBox<String>(new String[]
-                { "Slow", "Medium", "Fast", "Super fast", "Ultra fast", "Zero delay" });
+                // Worded exactly as in the Machine menu, since the two show the same setting.
+                { "Slow", "Medium", "Fast", "Super Fast", "Ultra Fast", "Zero Delay" });
         m_speedSelector.setFocusable(false);
         m_speedSelector.setToolTipText("How fast the machine steps while running");
         m_speedSelector.setSelectedIndex(2);
@@ -1238,6 +1246,38 @@ public class MainWindow extends JFrame
         refreshStatus();
     }
     
+    /**
+     * Show the given execution speed as the selected one everywhere it is offered, so that the
+     * Machine menu and the toolbar selector cannot disagree about the speed in force.
+     * @param index Position of the speed among the others.
+     */
+    private void syncSpeedSelection(int index)
+    {
+        // Selecting either control fires its own action, which lands back here; without this the
+        // two would bounce updates off each other.
+        if (m_syncingSpeed)
+        {
+            return;
+        }
+        m_syncingSpeed = true;
+        try
+        {
+            if (m_speedSelector != null && m_speedSelector.getSelectedIndex() != index)
+            {
+                m_speedSelector.setSelectedIndex(index);
+            }
+            if (m_speedItems != null && index < m_speedItems.length
+                    && m_speedItems[index] != null && !m_speedItems[index].isSelected())
+            {
+                m_speedItems[index].setSelected(true);
+            }
+        }
+        finally
+        {
+            m_syncingSpeed = false;
+        }
+    }
+
     /**
      * Run a machine straight through to a halt, rather than stepping it on a timer. Because this
      * cannot be watched as it happens, and because a machine may not halt at all, the user is asked
@@ -1872,10 +1912,11 @@ public class MainWindow extends JFrame
          * @param delay The new execution delay for the machine.
          * @param keyShortcut Shortcut associated with the action.
         */
-        public ExecutionSpeedSelectionAction(String text, int delay, KeyStroke keyShortcut)
+        public ExecutionSpeedSelectionAction(String text, int delay, int index, KeyStroke keyShortcut)
         {
             super(text, null, null, keyShortcut);
             m_delay = delay;
+            m_index = index;
         }
 
         /**
@@ -1885,12 +1926,22 @@ public class MainWindow extends JFrame
         public void actionPerformed(ActionEvent e)
         {
            m_executionDelayTime = m_delay;
+
+           // The speed is offered in the Machine menu, on the toolbar, and on a keyboard shortcut.
+           // Whichever was used, the others have to follow, or they end up disagreeing about the
+           // speed the machine is actually running at.
+           syncSpeedSelection(m_index);
         }
-        
+
         /**
          * The delay for execution of the machine.
          */
         private int m_delay;
+
+        /**
+         * Position of this speed among the others, shared by the menu and the toolbar selector.
+         */
+        private int m_index;
     }
 
    
@@ -1928,6 +1979,17 @@ public class MainWindow extends JFrame
      * Internal timer for repeatedly calling m_timerTask.
      */
     protected final java.util.Timer m_timer = new java.util.Timer(true);
+
+    /**
+     * The execution speed items in the Machine menu, in the same order as the toolbar selector.
+     */
+    private JRadioButtonMenuItem[] m_speedItems;
+
+    /**
+     * Set while the speed controls are being brought into agreement, to stop them from updating
+     * one another endlessly.
+     */
+    private boolean m_syncingSpeed = false;
 
     /**
      * Timer task used for stepping through a machine on a delay.
@@ -2742,42 +2804,42 @@ public class MainWindow extends JFrame
      * Action to set execution speed to slow.
      */
     public final ExecutionSpeedSelectionAction m_slowExecuteSpeedAction = 
-        new ExecutionSpeedSelectionAction("Slow", SLOW_EXECUTE_SPEED_DELAY,
+        new ExecutionSpeedSelectionAction("Slow", SLOW_EXECUTE_SPEED_DELAY, 0,
                 KeyStroke.getKeyStroke(KeyEvent.VK_1, KeyEvent.CTRL_DOWN_MASK));
 
     /**
      * Action to set execution speed to medium.
      */
     public final ExecutionSpeedSelectionAction m_mediumExecuteSpeedAction = 
-        new ExecutionSpeedSelectionAction("Medium", MEDIUM_EXECUTE_SPEED_DELAY,
+        new ExecutionSpeedSelectionAction("Medium", MEDIUM_EXECUTE_SPEED_DELAY, 1,
                 KeyStroke.getKeyStroke(KeyEvent.VK_2, KeyEvent.CTRL_DOWN_MASK));
 
     /**
      * Action to set execution speed to fast.
      */
     public final ExecutionSpeedSelectionAction m_fastExecuteSpeedAction =
-        new ExecutionSpeedSelectionAction("Fast", FAST_EXECUTE_SPEED_DELAY,
+        new ExecutionSpeedSelectionAction("Fast", FAST_EXECUTE_SPEED_DELAY, 2,
                 KeyStroke.getKeyStroke(KeyEvent.VK_3, KeyEvent.CTRL_DOWN_MASK));
 
     /**
      * Action to set execution speed to superfast.
      */
     public final ExecutionSpeedSelectionAction m_superFastExecuteSpeedAction = 
-        new ExecutionSpeedSelectionAction("Super Fast", SUPERFAST_EXECUTE_SPEED_DELAY,
+        new ExecutionSpeedSelectionAction("Super Fast", SUPERFAST_EXECUTE_SPEED_DELAY, 3,
                 KeyStroke.getKeyStroke(KeyEvent.VK_4, KeyEvent.CTRL_DOWN_MASK));
 
     /**
      * Action to set execution speed to ultrafast.
      */
     public final ExecutionSpeedSelectionAction m_ultraFastExecuteSpeedAction =
-        new ExecutionSpeedSelectionAction("Ultra Fast", ULTRAFAST_EXECUTE_SPEED_DELAY,
+        new ExecutionSpeedSelectionAction("Ultra Fast", ULTRAFAST_EXECUTE_SPEED_DELAY, 4,
                 KeyStroke.getKeyStroke(KeyEvent.VK_5, KeyEvent.CTRL_DOWN_MASK));
 
     /**
      * Action to run the machine straight through to a halt, with no delay between steps.
      */
     public final ExecutionSpeedSelectionAction m_zeroDelayExecuteSpeedAction =
-        new ExecutionSpeedSelectionAction("Zero Delay", ZERO_EXECUTE_SPEED_DELAY,
+        new ExecutionSpeedSelectionAction("Zero Delay", ZERO_EXECUTE_SPEED_DELAY, 5,
                 KeyStroke.getKeyStroke(KeyEvent.VK_6, KeyEvent.CTRL_DOWN_MASK));
 
     /**
