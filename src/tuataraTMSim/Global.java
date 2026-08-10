@@ -32,6 +32,8 @@ import java.util.function.Function;
 import javax.swing.ImageIcon;
 import javax.swing.JOptionPane;
 
+import tuataraTMSim.exceptions.ComputationFailedException;
+
 /**
  * A global utility class containing values and functions which are used by several distinct types,
  * but not specific enough to belong to any of them in particular. This class should not be
@@ -110,6 +112,24 @@ public final class Global
         // Non-reachable
         return null;
     }
+
+    /**
+     * NOTE: Nonstandard Tuatara modification: Gets an integer.
+     * @return -1 if the function threw: Otherwise the integer as obtained from dialog.
+     */
+    public static int getInteger()
+    {
+        try 
+        {
+            return Integer.parseInt(JOptionPane.showInputDialog(null, "Enter the maximum number of steps to run the machine for...", 
+            "Zero delay execution step limit", JOptionPane.QUESTION_MESSAGE));
+        }
+        catch (Exception e)
+        {
+            return -1;
+        }
+    }
+
 
     /**
      * Display an information message box to the user. Convenience wrapper to

@@ -256,6 +256,7 @@ public class TM_Simulator extends Simulator<TM_Action, TM_Transition, TM_State, 
     {
         // TODO: Not required by anything at this stage, however could be useful for almost-instant
         //       execution of machines. Considered for removal.
+        // NOTE: Done! Modded Tuatara client now has 'instant' execution.
 
         int currentStep = 0;
         while (!isHalted())

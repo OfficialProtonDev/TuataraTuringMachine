@@ -72,7 +72,14 @@ public class MainWindow extends JFrame
      * Delay between steps for ultrafast execution speed.
      */
     protected static final int ULTRAFAST_EXECUTE_SPEED_DELAY = 10;
-    
+
+    /**
+     * Delay between steps for zero-delay execution. A delay of zero is not a timer interval at all;
+     * it selects running the machine straight through to a halt rather than stepping it on a timer.
+     */
+    protected static final int ZERO_EXECUTE_SPEED_DELAY = 0;
+
+
     /**
      * Width of the machine canvas.
      */
@@ -744,7 +751,11 @@ public class MainWindow extends JFrame
         JRadioButtonMenuItem m_ultraFastExecuteSpeed = new JRadioButtonMenuItem(m_ultraFastExecuteSpeedAction);
         machineMenu.add(m_ultraFastExecuteSpeed);
         executeSpeedMenuItems.add(m_ultraFastExecuteSpeed);
-        
+
+        JRadioButtonMenuItem m_zeroDelayExecuteSpeed = new JRadioButtonMenuItem(m_zeroDelayExecuteSpeedAction);
+        machineMenu.add(m_zeroDelayExecuteSpeed);
+        executeSpeedMenuItems.add(m_zeroDelayExecuteSpeed);
+
         m_fastExecuteSpeed.setSelected(true);
         m_executionDelayTime = FAST_EXECUTE_SPEED_DELAY;
         
@@ -914,11 +925,11 @@ public class MainWindow extends JFrame
     private JComponent createSpeedSelector()
     {
         m_speedSelector = new JComboBox<String>(new String[]
-                { "Slow", "Medium", "Fast", "Super fast", "Ultra fast" });
+                { "Slow", "Medium", "Fast", "Super fast", "Ultra fast", "Zero delay" });
         m_speedSelector.setFocusable(false);
         m_speedSelector.setToolTipText("How fast the machine steps while running");
         m_speedSelector.setSelectedIndex(2);
-        m_speedSelector.setMaximumRowCount(5);
+        m_speedSelector.setMaximumRowCount(6);
         m_speedSelector.addActionListener(new ActionListener()
         {
             public void actionPerformed(ActionEvent e)
@@ -929,7 +940,8 @@ public class MainWindow extends JFrame
                     case 1: m_mediumExecuteSpeedAction.actionPerformed(e); break;
                     case 2: m_fastExecuteSpeedAction.actionPerformed(e); break;
                     case 3: m_superFastExecuteSpeedAction.actionPerformed(e); break;
-                    default: m_ultraFastExecuteSpeedAction.actionPerformed(e); break;
+                    case 4: m_ultraFastExecuteSpeedAction.actionPerformed(e); break;
+                    default: m_zeroDelayExecuteSpeedAction.actionPerformed(e); break;
                 }
             }
         });
@@ -1159,6 +1171,7 @@ public class MainWindow extends JFrame
             m_fastExecuteSpeedAction.setEnabled(isEnabled);
             m_superFastExecuteSpeedAction.setEnabled(isEnabled);
             m_ultraFastExecuteSpeedAction.setEnabled(isEnabled);
+            m_zeroDelayExecuteSpeedAction.setEnabled(isEnabled);
         }
     }
     
@@ -1202,6 +1215,7 @@ public class MainWindow extends JFrame
         m_fastExecuteSpeedAction.setEnabled(isEnabled);
         m_superFastExecuteSpeedAction.setEnabled(isEnabled);
         m_ultraFastExecuteSpeedAction.setEnabled(isEnabled);
+        m_zeroDelayExecuteSpeedAction.setEnabled(isEnabled);
         
         m_headToStartAction.setEnabled(isEnabled);
         m_eraseTapeAction.setEnabled(isEnabled);
@@ -1224,6 +1238,95 @@ public class MainWindow extends JFrame
         refreshStatus();
     }
     
+    /**
+     * Run a machine straight through to a halt, rather than stepping it on a timer. Because this
+     * cannot be watched as it happens, and because a machine may not halt at all, the user is asked
+     * for a limit on the number of steps first.
+     * @param panel The panel whose machine is to be run.
+     */
+    private void executeWithoutDelay(MachineGraphicsPanel panel)
+    {
+        Simulator sim = panel.getSimulator();
+
+        // Pre-validate the machine, as the timed path does.
+        String result = sim.getMachine().hasUndefinedSymbols();
+        if (result != null)
+        {
+            getConsole().log("Cannot simulate %s: %s", panel.getFrame().getTitle(), result);
+            Global.showErrorMessage("Execute", "Cannot simulate: %s", result);
+            setEditingEnabled(true);
+            return;
+        }
+
+        int maxSteps = Global.getInteger();
+        if (maxSteps <= 0)
+        {
+            // The prompt was cancelled or the answer was not a usable number; leave the machine be.
+            setEditingEnabled(true);
+            return;
+        }
+
+        try
+        {
+            if (sim.getCurrentState() == null)
+            {
+                Tape tape = getTape();
+                if (tape.headLocation() != 0)
+                {
+                    getConsole().log("Warning: Tape head has not been reset");
+                }
+                getConsole().logPartial(panel, "Input: %s\n",
+                        tape.getPartialString(tape.headLocation(),
+                                              tape.getLength() - tape.headLocation()));
+            }
+
+            // runUntilHalt reports acceptance, not halting: it returns false both when the step
+            // limit is hit and when the machine halted without the head parked. Only the machine's
+            // own state distinguishes the two, so ask it rather than trusting the return value.
+            sim.runUntilHalt(maxSteps);
+
+            panel.repaint();
+            m_tapeDisp.repaint();
+            getConsole().logPartial(panel, sim.getConfiguration());
+            getConsole().endPartial();
+
+            if (!sim.isHalted())
+            {
+                throw new ComputationFailedException(
+                        String.format("The machine did not halt after %d steps", maxSteps));
+            }
+            throw new ComputationCompletedException(sim.isAccepted()
+                    ? "The machine halted"
+                    : "The machine halted, but the read/write head was not parked");
+        }
+        // Machine halted as expected
+        catch (ComputationCompletedException e)
+        {
+            setEditingEnabled(true);
+            stopExecution();
+
+            String msg = panel.getErrorMessage(e);
+            getConsole().log("Simulation of %s finished: %s", panel.getFrame().getTitle(), msg);
+            Global.showInfoMessage(HALTED_MESSAGE_TITLE_STR, "Simulation finished: %s", msg);
+            sim.resetMachine();
+            panel.repaint();
+        }
+        // Machine halted unexpectedly, or ran past the step limit
+        catch (Exception e)
+        {
+            setEditingEnabled(true);
+            stopExecution();
+
+            String msg = panel.getErrorMessage(e);
+            getConsole().log("Simulation of %s halted unexpectedly: %s",
+                    panel.getFrame().getTitle(), msg);
+            Global.showErrorMessage(HALTED_MESSAGE_TITLE_STR,
+                    "Simulation halted unexpectedly: %s", msg);
+        }
+        refreshStatus();
+        repaint();
+    }
+
     /**
      * Stop execution of the current machine.
      * @return true if the currently executing machine is stopped, false otherwise.
@@ -2581,6 +2684,15 @@ public class MainWindow extends JFrame
                         m_timerTask.cancel();
                     }
                     setEditingEnabled(false);
+
+                    // A delay of zero is not a timer interval; it means run the machine through to
+                    // a halt in one go rather than animating it step by step.
+                    if (m_executionDelayTime <= 0)
+                    {
+                        executeWithoutDelay(panel);
+                        return;
+                    }
+
                     m_timerTask = new ExecutionTimerTask(panel, m_tapeDisp);
                     m_timer.schedule(m_timerTask, 0, m_executionDelayTime);
                 }
@@ -2657,9 +2769,16 @@ public class MainWindow extends JFrame
     /**
      * Action to set execution speed to ultrafast.
      */
-    public final ExecutionSpeedSelectionAction m_ultraFastExecuteSpeedAction = 
+    public final ExecutionSpeedSelectionAction m_ultraFastExecuteSpeedAction =
         new ExecutionSpeedSelectionAction("Ultra Fast", ULTRAFAST_EXECUTE_SPEED_DELAY,
-                KeyStroke.getKeyStroke(KeyEvent.VK_5, KeyEvent.CTRL_DOWN_MASK)); 
+                KeyStroke.getKeyStroke(KeyEvent.VK_5, KeyEvent.CTRL_DOWN_MASK));
+
+    /**
+     * Action to run the machine straight through to a halt, with no delay between steps.
+     */
+    public final ExecutionSpeedSelectionAction m_zeroDelayExecuteSpeedAction =
+        new ExecutionSpeedSelectionAction("Zero Delay", ZERO_EXECUTE_SPEED_DELAY,
+                KeyStroke.getKeyStroke(KeyEvent.VK_6, KeyEvent.CTRL_DOWN_MASK));
 
     /**
      * Action for moving the read/write head to the start of the tape.
