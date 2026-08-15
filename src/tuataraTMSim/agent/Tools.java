@@ -141,6 +141,13 @@ public final class Tools
         + "final state at that moment. Tuatara also requires an acceptor to be complete, with a "
         + "transition for every alphabet symbol in every state, and '?' is not allowed.\n"
         + "\n"
+        + "Every tool that changes a machine reports a \"layout\" field saying whether the diagram "
+        + "still reads cleanly, and naming what is wrong when it does not. Watch it as you build. A "
+        + "user following along is looking at the picture, not at the transition table, so a diagram "
+        + "that has become unreadable halfway through is a real failure even though every edit "
+        + "succeeded. Fix it when it appears rather than at the end: call arrange_machine, or "
+        + "move_state, and use render_machine to see what they are seeing.\n"
+        + "\n"
         + "Work in a draft, not in the user's tab. create_machine with open:false gives you a "
         + "private machine to iterate on; run_tests on it is fast and invisible. Call open_in_app "
         + "when you have something worth showing. Editing a tab the user has open changes what is "
@@ -398,7 +405,8 @@ public final class Tools
              "Draw a machine exactly as Tuatara draws it and return the picture as a PNG. Use it to "
            + "check that a machine you built or rearranged actually looks right: overlapping "
            + "states, arrows crossing through other states and unreadable labels show up here and "
-           + "not in get_machine.",
+           + "not in get_machine. The \"layout\" field alongside names any of those it can "
+           + "measure, so read both.",
              schema("target", TARGET,
                     "highlight", list("State labels to pick out in colour.", Json.object("type", "string"))),
              new SwingHandler()
@@ -482,7 +490,8 @@ public final class Tools
                          return Json.object("target", id, "opened_in_app", Boolean.TRUE,
                                  "states", Integer.valueOf(machine.getStates().size()),
                                  "transitions", Integer.valueOf(machine.getTransitions().size()),
-                                 "diagnosis", Diagnosis.summary(machine));
+                                 "diagnosis", Diagnosis.summary(machine),
+                                 "layout", Legibility.report(machine));
                      }
                      Workspace.Draft draft = Workspace.putDraft(
                              Workspace.draftId(Json.str(args, "id", null), name), machine);
@@ -490,6 +499,7 @@ public final class Tools
                              "states", Integer.valueOf(machine.getStates().size()),
                              "transitions", Integer.valueOf(machine.getTransitions().size()),
                              "diagnosis", Diagnosis.summary(machine),
+                             "layout", Legibility.report(machine),
                              "note", "This is a draft; the user cannot see it. Call open_in_app when "
                                    + "it is worth showing.");
                  }
@@ -498,9 +508,11 @@ public final class Tools
         tool("edit_machine",
              "Change an existing machine with a list of small operations, applied together as one "
            + "step the user can undo with a single Ctrl+Z. Existing states keep the positions they "
-           + "have; anything you add is placed in clear space nearby. This is the tool for "
+           + "have; anything you add is placed in clear space nearby, and the arrows touching it "
+           + "are shaped to keep their labels clear of everything else. This is the tool for "
            + "correcting or extending a machine somebody has been working on. If any operation is "
-           + "invalid the whole call fails and nothing changes.",
+           + "invalid the whole call fails and nothing changes. Check the \"layout\" field it "
+           + "returns: it says whether the diagram still reads cleanly after the edit.",
              schema("target", TARGET,
                     "label", string("What to call this in the undo menu, e.g. \"add the carry loop\"."),
                     "ops!", list(
@@ -552,7 +564,8 @@ public final class Tools
                              "applied", Integer.valueOf(outcome.applied),
                              "undo_label", outcome.undoLabel,
                              "placed", outcome.placed,
-                             "diagnosis", Diagnosis.summary(target.machine));
+                             "diagnosis", Diagnosis.summary(target.machine),
+                             "layout", Legibility.report(target.machine));
                  }
              });
 
@@ -586,7 +599,8 @@ public final class Tools
                              Workspace.draftChanged(target.title);
                          }
                          return Json.object("target", target.id, "status", "applied",
-                                 "scope", "new_states", "moved", Integer.valueOf(placed.size()));
+                                 "scope", "new_states", "moved", Integer.valueOf(placed.size()),
+                                 "layout", Legibility.report(target.machine));
                      }
 
                      if (target.isTab() && target.panel.isHandPositioned())
@@ -642,7 +656,8 @@ public final class Tools
                          Workspace.draftChanged(target.title);
                      }
                      return Json.object("target", target.id, "status", "applied", "scope", "all",
-                             "moved", Integer.valueOf(moved));
+                             "moved", Integer.valueOf(moved),
+                             "layout", Legibility.report(target.machine));
                  }
              });
 
