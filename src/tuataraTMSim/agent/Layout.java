@@ -25,6 +25,7 @@
 
 package tuataraTMSim.agent;
 
+import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -67,14 +68,17 @@ public final class Layout
     private static final int GRID = 24;
 
     /**
-     * Clear space between one column of states and the next.
+     * Clear space between one column of states and the next. Wide enough that the label on an arrow
+     * running between two columns has room to sit without touching either end.
      */
-    private static final int COLUMN_GAP = 144;
+    private static final int COLUMN_GAP = 168;
 
     /**
-     * Vertical distance between states in the same column.
+     * Vertical distance between states in the same column. A label sits ACTION_TEXT_DISTANCE clear
+     * of the line it belongs to, so states stacked closer than this have their arrows' text landing
+     * on whichever state is above.
      */
-    private static final int ROW_GAP = 120;
+    private static final int ROW_GAP = 132;
 
     /**
      * Space left at the top and left of the canvas.
@@ -87,9 +91,20 @@ public final class Layout
     private static final int CANVAS = 2000;
 
     /**
-     * How far apart two states must sit before they stop looking like one state.
+     * How far apart two states must sit before the picture between them stops being cramped.
+     *
+     * Not merely far enough that the circles miss each other: the arrow joining them carries a
+     * label a fixed distance off the line, and that text needs somewhere to go. Two states a circle
+     * apart do not collide and still produce a diagram nobody can read, which is what this being
+     * too small used to cause.
      */
-    private static final int SEPARATION = 72;
+    private static final int SEPARATION = 120;
+
+    /**
+     * The most transitions worth running the legibility search over. Past this the diagram is too
+     * dense for nudging arrows to rescue, and the search stops being cheap.
+     */
+    private static final int TIDY_LIMIT = 60;
 
     /**
      * How far a curved arrow bows away from the straight line.
@@ -158,6 +173,8 @@ public final class Layout
         {
             route(machine, (Transition)o);
         }
+        // Routing gets each arrow clear of the states; this gets the labels clear of each other.
+        tidy(machine, allTransitions(machine));
         return states.size();
     }
 
@@ -323,6 +340,185 @@ public final class Layout
     }
 
     /* ---------------------------------------------------------------- *
+     * Making the result legible
+     * ---------------------------------------------------------------- */
+
+    /**
+     * Nudge arrows until the labels stop colliding with things.
+     *
+     * Placing states well is only half of a readable diagram. The other half is the text, and in
+     * this program the text cannot be moved on its own: a label is drawn a fixed distance from the
+     * midpoint of its curve, so the only way to shift one is to reshape the arrow it belongs to.
+     * That is what this does. Each arrow is offered a handful of alternative control points --
+     * bowed further out, bowed the other way, or slid along the line so the label travels with it
+     * -- and keeps whichever leaves the whole picture reading best, as scored by
+     * {@link Legibility}.
+     *
+     * A plain hill climb, because it is enough: the moves are a dozen per arrow, the machines are
+     * small, and a search that occasionally settles for second best is not worth the complexity of
+     * avoiding here. It stops early the moment a round changes nothing.
+     * @param machine The machine to tidy.
+     * @param movable The transitions allowed to move. Anything left out keeps the curve it has,
+     *                which is how a user's own bends survive an edit elsewhere.
+     * @return The number of arrows that were moved.
+     */
+    public static int tidy(Machine machine, Collection<Transition> movable)
+    {
+        List<Transition> candidates = new ArrayList<Transition>();
+        for (Transition t : movable)
+        {
+            State from = (State)t.getFromState();
+            State to = (State)t.getToState();
+            if (from != null && to != null && isPlaced(from) && isPlaced(to))
+            {
+                candidates.add(t);
+            }
+        }
+        if (candidates.isEmpty() || machine.getTransitions().size() > TIDY_LIMIT)
+        {
+            return 0;
+        }
+
+        int moved = 0;
+        for (int round = 0; round < 4; round++)
+        {
+            boolean improved = false;
+            for (Transition t : candidates)
+            {
+                Point2D original = t.getControlPoint();
+                // Only the findings this arrow is party to. Everything else is untouched by moving
+                // it, so it would contribute the same constant to every candidate.
+                double bestScore = Legibility.scoreFor(machine, t);
+                Point2D bestPoint = original;
+                if (bestScore == 0)
+                {
+                    continue;
+                }
+
+                for (Point2D option : options(machine, t))
+                {
+                    t.setControlPoint((int)Math.round(option.getX()), (int)Math.round(option.getY()));
+                    double score = Legibility.scoreFor(machine, t);
+                    if (score < bestScore - 1e-6)
+                    {
+                        bestScore = score;
+                        bestPoint = option;
+                        if (score == 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                t.setControlPoint((int)Math.round(bestPoint.getX()),
+                                  (int)Math.round(bestPoint.getY()));
+                if (bestPoint != original)
+                {
+                    improved = true;
+                    moved++;
+                }
+            }
+            if (!improved)
+            {
+                break;
+            }
+        }
+        return moved;
+    }
+
+    /**
+     * Every control point worth trying for one transition.
+     *
+     * For an arc these are displacements from the midpoint of the straight line: sideways, which
+     * bends the arrow away from whatever it is colliding with, and lengthways, which slides the
+     * label along the arrow without changing how far it bows. The second matters more than it
+     * sounds -- two arrows running side by side usually need their labels staggered rather than
+     * their lines pulled apart.
+     *
+     * For a self-loop the control point is a direction and a reach from the middle of the state, so
+     * the options are the eight compass points at two distances.
+     * @param machine The machine being tidied.
+     * @param transition The transition to offer alternatives for.
+     * @return The points to try, current position included.
+     */
+    private static List<Point2D> options(Machine machine, Transition transition)
+    {
+        List<Point2D> out = new ArrayList<Point2D>();
+        State from = (State)transition.getFromState();
+        State to = (State)transition.getToState();
+
+        if (from == to)
+        {
+            double centreX = from.getX() + STATE_W / 2.0;
+            double centreY = from.getY() + STATE_W / 2.0;
+            int[][] directions =
+            {
+                { 0, -1 }, { 1, -1 }, { -1, -1 }, { 1, 0 }, { -1, 0 }, { 1, 1 }, { -1, 1 }, { 0, 1 }
+            };
+            for (double reach : new double[] { LOOP_REACH, LOOP_REACH * 1.4 })
+            {
+                for (int[] d : directions)
+                {
+                    double length = Math.hypot(d[0], d[1]);
+                    out.add(new Point2D.Double(centreX + d[0] / length * reach,
+                                               centreY + d[1] / length * reach));
+                }
+            }
+            return out;
+        }
+
+        double midX = (from.getX() + to.getX()) / 2.0 + STATE_W / 2.0;
+        double midY = (from.getY() + to.getY()) / 2.0 + STATE_W / 2.0;
+        double dx = to.getX() - from.getX();
+        double dy = to.getY() - from.getY();
+        double length = Math.hypot(dx, dy);
+        if (length < 1)
+        {
+            out.add(transition.getControlPoint());
+            return out;
+        }
+        double alongX = dx / length;
+        double alongY = dy / length;
+        double normalX = -alongY;
+        double normalY = alongX;
+
+        double[] bows = { 0, BOW, -BOW, BOW * 1.8, -BOW * 1.8, BOW * 2.7, -BOW * 2.7 };
+        // Sliding is proportional to the arrow's length, so a short arrow does not fling its label
+        // off the end of itself.
+        double slide = Math.min(length * 0.22, 54);
+        double[] slides = { 0, slide, -slide };
+
+        out.add(transition.getControlPoint());
+        for (double bow : bows)
+        {
+            for (double along : slides)
+            {
+                // The midpoint of a quadratic moves half as far as its control point, so the
+                // displacement is doubled to make the label travel the distance asked for.
+                out.add(new Point2D.Double(
+                            midX + normalX * bow + alongX * along * 2,
+                            midY + normalY * bow + alongY * along * 2));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Every transition in a machine, for the callers that want to tidy the lot.
+     * @param machine The machine.
+     * @return Its transitions.
+     */
+    private static List<Transition> allTransitions(Machine machine)
+    {
+        List<Transition> out = new ArrayList<Transition>();
+        for (Object o : machine.getTransitions())
+        {
+            out.add((Transition)o);
+        }
+        return out;
+    }
+
+    /* ---------------------------------------------------------------- *
      * Adding to a machine somebody else arranged
      * ---------------------------------------------------------------- */
 
@@ -391,7 +587,7 @@ public final class Layout
                 anchorY = middleY(taken);
             }
 
-            int[] spot = freeSpot(anchorX, anchorY, taken);
+            int[] spot = bestSpot(machine, state, anchorX, anchorY, taken);
             state.setPosition(spot[0], spot[1]);
             taken.add(state);
             placed.add(state);
@@ -400,50 +596,146 @@ public final class Layout
         // Only the arrows touching a new state are (re)drawn. Every other transition keeps the
         // curve it has, including any the user bent by hand.
         Set<State> fresh = new HashSet<State>(placed);
+        List<Transition> touched = new ArrayList<Transition>();
         for (Object o : machine.getTransitions())
         {
             Transition t = (Transition)o;
             if (fresh.contains(t.getFromState()) || fresh.contains(t.getToState()))
             {
                 route(machine, t);
+                touched.add(t);
             }
         }
+        // An addition has to read as well as a whole arrangement does, or building a machine a few
+        // states at a time ends in a mess that no single edit is to blame for. The scoring looks at
+        // the entire picture, so a new arrow is fitted around what is already there, but only the
+        // new arrows are allowed to move.
+        tidy(machine, touched);
         return placed;
     }
 
     /**
-     * Find somewhere near a point with room for a state, spiralling outwards until one is found.
+     * Choose where a new state goes by looking at the diagram each candidate would produce.
+     *
+     * Room to sit is a weak test. A state can be clear of every other state and still be in a
+     * thoroughly bad place -- across the diagram from the states it connects to, so that its arrows
+     * have to sweep back over everything in between, dragging their labels through other people's.
+     * Nudging those arrows afterwards cannot undo it, because the problem is where the state is,
+     * not how the line to it is curved.
+     *
+     * So every free spot is tried: the state is put there, its arrows are routed, and the whole
+     * picture is scored. The one that reads best wins, and ties go to the spot nearest the states
+     * it connects to, which keeps an addition where the user would expect to find it.
+     * @param machine The machine being added to.
+     * @param state The state to place.
+     * @param anchorX Where it would ideally sit.
+     * @param anchorY Where it would ideally sit.
+     * @param taken Every state already placed.
+     * @return The chosen position.
+     */
+    private static int[] bestSpot(Machine machine, State state,
+                                  double anchorX, double anchorY, List<State> taken)
+    {
+        List<int[]> options = freeSpots(anchorX, anchorY, taken);
+        if (options.size() == 1 || machine.getTransitions().size() > TIDY_LIMIT)
+        {
+            return options.get(0);
+        }
+
+        // Only the arrows touching this state are re-routed while trying spots; everything else is
+        // left alone, so the comparison is between candidate positions and nothing else.
+        List<Transition> mine = new ArrayList<Transition>();
+        for (Object o : machine.getTransitions())
+        {
+            Transition t = (Transition)o;
+            if (t.getFromState() == state || t.getToState() == state)
+            {
+                mine.add(t);
+            }
+        }
+
+        int[] best = options.get(0);
+        double bestScore = Double.MAX_VALUE;
+        double bestDistance = Double.MAX_VALUE;
+        for (int[] option : options)
+        {
+            state.setPosition(option[0], option[1]);
+            // Routed but not tidied. Tidying every candidate multiplies the work by the number of
+            // spots for a judgement it barely changes: a position that is wrong is wrong however
+            // its arrows are bent, and the winner gets tidied properly by the caller anyway.
+            for (Transition t : mine)
+            {
+                route(machine, t);
+            }
+
+            double score = Legibility.score(machine);
+            double distance = Math.hypot(option[0] - anchorX, option[1] - anchorY);
+            if (score < bestScore - 1e-6 || (Math.abs(score - bestScore) < 1e-6
+                                             && distance < bestDistance))
+            {
+                bestScore = score;
+                bestDistance = distance;
+                best = option;
+            }
+            if (bestScore == 0 && best == option)
+            {
+                // Nothing wrong with the picture and nearest so far: no later ring can beat it,
+                // because they are generated outwards.
+                break;
+            }
+        }
+        state.setPosition(best[0], best[1]);
+        return best;
+    }
+
+    /**
+     * Somewhere near a point with room for a state, nearest first.
      * @param anchorX Where the state would ideally sit.
      * @param anchorY Where the state would ideally sit.
      * @param taken Every state already placed.
-     * @return An x and y on the grid, inside the canvas, clear of everything in taken.
+     * @return Positions on the grid, inside the canvas, clear of everything in taken.
      */
-    private static int[] freeSpot(double anchorX, double anchorY, List<State> taken)
+    private static List<int[]> freeSpots(double anchorX, double anchorY, List<State> taken)
     {
-        int[] best = null;
-        for (int ring = 0; ring <= 40 && best == null; ring++)
+        List<int[]> found = new ArrayList<int[]>();
+        for (int ring = 0; ring <= 40 && found.size() < 24; ring++)
         {
             int steps = ring == 0? 1 : Math.min(8 + ring * 4, 48);
             for (int step = 0; step < steps; step++)
             {
                 double angle = (step / (double)steps) * Math.PI * 2;
-                double radius = ring * (SEPARATION * 0.9);
+                double radius = ring == 0? 0 : SEPARATION + (ring - 1) * (double)GRID * 2;
                 int x = snap(clamp((int)Math.round(anchorX + Math.cos(angle) * radius)));
                 int y = snap(clamp((int)Math.round(anchorY + Math.sin(angle) * radius)));
-                if (clear(x, y, taken))
+                if (!clear(x, y, taken))
                 {
-                    best = new int[] { x, y };
-                    break;
+                    continue;
+                }
+                boolean already = false;
+                for (int[] seen : found)
+                {
+                    already |= seen[0] == x && seen[1] == y;
+                }
+                if (!already)
+                {
+                    found.add(new int[] { x, y });
                 }
             }
+            // Enough of a choice to be worth judging, and all from the innermost rings that had
+            // any room, so nothing far away is considered while somewhere close is free.
+            if (found.size() >= 8)
+            {
+                break;
+            }
         }
-        if (best == null)
+        if (found.isEmpty())
         {
             // Every ring was occupied, which takes a remarkable diagram. Put it past the right-hand
             // edge of everything rather than on top of another state.
-            best = new int[] { snap(clamp((int)right(taken) + COLUMN_GAP)), snap(clamp((int)anchorY)) };
+            found.add(new int[] { snap(clamp((int)right(taken) + COLUMN_GAP)),
+                                  snap(clamp((int)anchorY)) });
         }
-        return best;
+        return found;
     }
 
     private static boolean clear(int x, int y, List<State> taken)

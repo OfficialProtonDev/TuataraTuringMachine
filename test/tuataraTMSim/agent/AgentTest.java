@@ -50,6 +50,7 @@ public class AgentTest
         acceptors();
         editing();
         layout();
+        legibility();
         scale();
 
         System.out.println();
@@ -516,6 +517,21 @@ public class AgentTest
            "control point y = " + ac.getControlPoint().getY());
     }
 
+    /**
+     * Apply one batch of edits, the way a tool call would, failing loudly if it does not stick.
+     * @param m The machine to change.
+     * @param ops The operations, as a JSON array.
+     */
+    private static void grow(Machine m, String ops)
+    {
+        Edits.Outcome outcome = Edits.apply(m, null,
+                Json.arr(Json.parse("{\"ops\":" + ops + "}"), "ops"), "grow");
+        if (!outcome.ok())
+        {
+            throw new RuntimeException(outcome.errors.toString());
+        }
+    }
+
     private static double minSeparation(Machine m)
     {
         List<State> states = new ArrayList<State>();
@@ -546,6 +562,160 @@ public class AgentTest
             }
         }
         return true;
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Legibility
+     * ---------------------------------------------------------------- */
+
+    /**
+     * Whether the drawing can actually be read, which is a separate question from whether the
+     * states are in sensible places. These are the checks that the labels -- most of what is on
+     * screen, and none of what the older layout checks looked at -- end up somewhere sane.
+     */
+    private static void legibility()
+    {
+        section("legibility");
+
+        // Two transitions between the same pair of states are the ordinary case that used to put
+        // one label on top of another: both curves have the same endpoints, so without fanning
+        // them apart both midpoints, and both labels, land in the same spot.
+        Machine twin = Doc.build(Json.parse(
+            "{\"type\":\"turing\",\"alphabet\":[\"0\",\"1\",\"_\"],"
+          + "\"states\":[{\"name\":\"a\",\"start\":true},{\"name\":\"b\",\"final\":true}],"
+          + "\"transitions\":[{\"from\":\"a\",\"to\":\"b\",\"on\":\"0\",\"action\":\"R\"},"
+          + "                 {\"from\":\"a\",\"to\":\"b\",\"on\":\"1\",\"action\":\"R\"}]}"),
+            new ArrayList<String>());
+        Layout.all(twin);
+        Legibility.Box first = Legibility.labelBox(Machines.transition(twin, "a", "b", '0'));
+        Legibility.Box second = Legibility.labelBox(Machines.transition(twin, "a", "b", '1'));
+        ok("two arrows between the same pair keep their labels apart",
+           first.overlap(second) == 0,
+           "boxes at " + (int)first.x + "," + (int)first.y
+                 + " and " + (int)second.x + "," + (int)second.y);
+
+        // Arrows out of one state all begin at the same point, so anything that reads the geometry
+        // without allowing for the states drawn over the ends finds crossings everywhere.
+        ok("arrows sharing a state are not reported as crossing there",
+           Legibility.problems(twin).isEmpty(),
+           Legibility.problems(twin).isEmpty()? null : Legibility.problems(twin).get(0).description);
+
+        // The machine from the worked example, which is the shape this was built for: a scan loop,
+        // a return loop, and two arrows into the final state.
+        Machine real = Doc.build(Json.parse(EMPTY_CHECK), new ArrayList<String>());
+        Layout.all(real);
+        same("a whole arrangement comes out readable", Double.valueOf(0),
+             Double.valueOf(Legibility.score(real)));
+        ok("and says so", Boolean.TRUE.equals(
+                    Json.member(Legibility.report(real), "readable")));
+
+        // Every label clear of every state, which is the other half of readable.
+        boolean clearOfStates = true;
+        for (Object o : real.getTransitions())
+        {
+            Legibility.Box label = Legibility.labelBox((Transition)o);
+            for (Object p : real.getStates())
+            {
+                clearOfStates &= label.overlap(Legibility.stateBox((State)p)) == 0;
+            }
+        }
+        ok("no label is drawn over a state", clearOfStates);
+
+        // Deliberately ruin it, then check the search puts it back.
+        for (Object o : real.getTransitions())
+        {
+            Transition t = (Transition)o;
+            State from = (State)t.getFromState();
+            State to = (State)t.getToState();
+            t.setControlPoint((from.getX() + to.getX()) / 2 + 15,
+                              (from.getY() + to.getY()) / 2 + 15);
+        }
+        double ruined = Legibility.score(real);
+        ok("stacking every arrow on the straight line is noticed", ruined > 0,
+           "score " + (int)ruined);
+
+        List<Transition> every = new ArrayList<Transition>();
+        for (Object o : real.getTransitions())
+        {
+            every.add((Transition)o);
+        }
+        long started = System.currentTimeMillis();
+        Layout.tidy(real, every);
+        long took = System.currentTimeMillis() - started;
+        double recovered = Legibility.score(real);
+        ok("and tidying recovers it", recovered < ruined,
+           "score " + (int)ruined + " -> " + (int)recovered);
+        ok("quickly enough to run on every edit", took < 2000, took + " ms");
+
+        // Tidying must respect what it was told it may touch, or a user's own bends would be
+        // rewritten by an edit somewhere else in the machine.
+        Machine guarded = Doc.build(Json.parse(EMPTY_CHECK), new ArrayList<String>());
+        Layout.all(guarded);
+        Transition pinned = Machines.transition(guarded, "q0", "q1", '0');
+        pinned.setControlPoint(700, 700);
+        int x = (int)pinned.getControlPoint().getX();
+        int y = (int)pinned.getControlPoint().getY();
+        Layout.tidy(guarded, new ArrayList<Transition>());
+        ok("tidying moves nothing it was not offered",
+           (int)pinned.getControlPoint().getX() == x && (int)pinned.getControlPoint().getY() == y);
+
+        // Two arrows that never cross and never cover a label can still be unreadable by running
+        // alongside one another, with no point at which a reader can tell them apart.
+        Machine parallel = Doc.build(Json.parse(
+            "{\"type\":\"turing\",\"alphabet\":[\"0\",\"1\",\"_\"],"
+          + "\"states\":[{\"name\":\"a\",\"start\":true},{\"name\":\"b\",\"final\":true}],"
+          + "\"transitions\":[{\"from\":\"a\",\"to\":\"b\",\"on\":\"0\",\"action\":\"R\"},"
+          + "                 {\"from\":\"a\",\"to\":\"b\",\"on\":\"1\",\"action\":\"R\"}]}"),
+            new ArrayList<String>());
+        Layout.all(parallel);
+        Transition one = Machines.transition(parallel, "a", "b", '0');
+        Transition two = Machines.transition(parallel, "a", "b", '1');
+        double bowApart = Math.hypot(one.getControlPoint().getX() - two.getControlPoint().getX(),
+                                     one.getControlPoint().getY() - two.getControlPoint().getY());
+        ok("arrows between the same pair are fanned apart, not stacked", bowApart > 40,
+           "control points " + (int)bowApart + "px apart");
+
+        one.setControlPoint((int)two.getControlPoint().getX(), (int)two.getControlPoint().getY());
+        ok("laying one arrow along another is noticed", Legibility.score(parallel) > 0,
+           "score " + (int)Legibility.score(parallel));
+
+        // The case that started this: a machine built a few states at a time, the way an assistant
+        // works, rather than arranged all at once. It has to end up as readable as the other way,
+        // because it is what the user watches being built.
+        Machine grown = Doc.build(Json.parse(
+            "{\"type\":\"turing\",\"alphabet\":[\"0\",\"1\",\"_\"],"
+          + "\"states\":[{\"name\":\"q0\",\"start\":true}],\"transitions\":[]}"),
+            new ArrayList<String>());
+        Layout.all(grown);
+        grow(grown, "[{\"op\":\"add_state\",\"name\":\"qf\",\"final\":true},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q0\",\"to\":\"qf\",\"on\":\"_\",\"action\":\"1\"}]");
+        grow(grown, "[{\"op\":\"add_state\",\"name\":\"q1\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q0\",\"to\":\"q1\",\"on\":\"0\",\"action\":\"R\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q0\",\"to\":\"q1\",\"on\":\"1\",\"action\":\"R\"}]");
+        grow(grown, "[{\"op\":\"add_state\",\"name\":\"q2\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q1\",\"to\":\"q2\",\"on\":\"0\",\"action\":\"_\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q1\",\"to\":\"q2\",\"on\":\"1\",\"action\":\"_\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q2\",\"to\":\"q1\",\"on\":\"_\",\"action\":\"R\"}]");
+        grow(grown, "[{\"op\":\"add_state\",\"name\":\"q3\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q1\",\"to\":\"q3\",\"on\":\"_\",\"action\":\"L\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q3\",\"to\":\"q3\",\"on\":\"_\",\"action\":\"L\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q3\",\"to\":\"qf\",\"on\":\"0\",\"action\":\"0\"},"
+                  + " {\"op\":\"set_transition\",\"from\":\"q3\",\"to\":\"qf\",\"on\":\"1\",\"action\":\"0\"}]");
+        same("a machine grown one edit at a time ends readable", Double.valueOf(0),
+             Double.valueOf(Legibility.score(grown)));
+
+        // The report is what an assistant sees mid-build, so its shape matters.
+        Machine bad = Doc.build(Json.parse(EMPTY_CHECK), new ArrayList<String>());
+        Layout.all(bad);
+        for (Object o : bad.getStates())
+        {
+            ((State)o).setPosition(200, 200);
+        }
+        Object report = Legibility.report(bad);
+        ok("a broken layout reports as unreadable",
+           Boolean.FALSE.equals(Json.member(report, "readable")));
+        ok("and names what is wrong", !Json.arr(report, "problems").isEmpty(),
+           String.valueOf(Json.arr(report, "problems").get(0)));
     }
 
     /* ---------------------------------------------------------------- *
@@ -640,6 +810,27 @@ public class AgentTest
       + "  {\"from\":\"scan\",\"to\":\"back\",\"on\":\"_\",\"action\":\"1\"},"
       + "  {\"from\":\"back\",\"to\":\"back\",\"on\":\"1\",\"action\":\"L\"},"
       + "  {\"from\":\"back\",\"to\":\"done\",\"on\":\"A\",\"action\":\"A\"}]}";
+
+    /**
+     * Decides whether its input is empty, from the worked example. Two arrows between one pair of
+     * states, two into the final state, a scan loop and a return loop: enough going on that a
+     * careless layout puts labels on top of each other, which is why the legibility checks use it.
+     */
+    private static final String EMPTY_CHECK =
+        "{\"type\":\"turing\",\"name\":\"is empty\",\"alphabet\":[\"0\",\"1\",\"_\"],"
+      + "\"states\":[{\"name\":\"q0\",\"start\":true},{\"name\":\"q1\"},{\"name\":\"q2\"},"
+      + "           {\"name\":\"q3\"},{\"name\":\"qf\",\"final\":true}],"
+      + "\"transitions\":["
+      + "  {\"from\":\"q0\",\"to\":\"qf\",\"on\":\"_\",\"action\":\"1\"},"
+      + "  {\"from\":\"q0\",\"to\":\"q1\",\"on\":\"0\",\"action\":\"R\"},"
+      + "  {\"from\":\"q0\",\"to\":\"q1\",\"on\":\"1\",\"action\":\"R\"},"
+      + "  {\"from\":\"q1\",\"to\":\"q2\",\"on\":\"0\",\"action\":\"_\"},"
+      + "  {\"from\":\"q1\",\"to\":\"q2\",\"on\":\"1\",\"action\":\"_\"},"
+      + "  {\"from\":\"q1\",\"to\":\"q3\",\"on\":\"_\",\"action\":\"L\"},"
+      + "  {\"from\":\"q2\",\"to\":\"q1\",\"on\":\"_\",\"action\":\"R\"},"
+      + "  {\"from\":\"q3\",\"to\":\"q3\",\"on\":\"_\",\"action\":\"L\"},"
+      + "  {\"from\":\"q3\",\"to\":\"qf\",\"on\":\"0\",\"action\":\"0\"},"
+      + "  {\"from\":\"q3\",\"to\":\"qf\",\"on\":\"1\",\"action\":\"0\"}]}";
 
     /** Walks right and comes home, for timing. */
     private static final String SCANNER =

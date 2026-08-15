@@ -150,7 +150,11 @@ public final class Render
                 "width", Integer.valueOf(imageWidth),
                 "height", Integer.valueOf(imageHeight),
                 "states", Integer.valueOf(states.size()),
-                "overlapping_state_pairs", Integer.valueOf(overlaps(states)));
+                "overlapping_state_pairs", Integer.valueOf(overlaps(states)),
+                // The picture is the honest answer, but a picture has to be looked at properly to
+                // notice two labels a few pixels apart. The measured findings sit alongside it so
+                // that what is wrong is stated as well as shown.
+                "layout", Legibility.report(machine));
         if (scale < 1.0)
         {
             out.put("note", String.format(
