@@ -847,13 +847,16 @@ public final class Tools
            + "play the machine on screen. Use this when the point is for them to see it work. For "
            + "checking whether a machine is correct use run_tests, which is far faster and disturbs "
            + "nothing. \"play\" returns as soon as the machine starts; it does not wait for it to "
-           + "halt.",
+           + "halt, except at \"instant\" speed, which runs to a halt before it returns.",
              schema("target", TARGET,
                     "input", string("Written to the tape first, with the head reset to 0."),
                     "action!", enumeration("What to do.", "step", "play", "pause", "stop"),
                     "speed", enumeration("How fast to play. \"instant\" runs it through in one go "
                                        + "rather than animating it.",
-                                         "slow", "medium", "fast", "superfast", "ultrafast", "instant")),
+                                         "slow", "medium", "fast", "superfast", "ultrafast", "instant"),
+                    "max_steps", integer("How many steps \"instant\" may take before it gives up on "
+                                       + "a machine that is not going to halt. Default 1,000,000. "
+                                       + "The other speeds run on a timer and ignore it.")),
              new SwingHandler()
              {
                  Object call(Object args) throws Exception
@@ -866,6 +869,12 @@ public final class Tools
                      }
                      MainWindow window = MainWindow.getInstance();
                      window.getTabPane().setSelectedComponent(target.frame);
+
+                     // Nobody is necessarily watching the screen, and a message box waiting to be
+                     // dismissed would hold the event thread against every later request. The
+                     // console still records everything the boxes would have said. The user gets
+                     // them back the moment they run the machine themselves.
+                     Global.setMessagesSuppressed(true);
 
                      String input = Json.str(args, "input", null);
                      if (input != null)
@@ -891,7 +900,13 @@ public final class Tools
                      }
                      else if ("play".equals(action))
                      {
-                         window.startExecution(target.panel);
+                         double limit = Json.num(args, "max_steps", Sandbox.DEFAULT_MAX_STEPS);
+                         if (limit < 1)
+                         {
+                             throw new AgentException("max_steps must be at least 1.");
+                         }
+                         window.startExecution(target.panel,
+                                 (int)Math.min(Integer.MAX_VALUE, limit));
                      }
                      else if ("step".equals(action))
                      {

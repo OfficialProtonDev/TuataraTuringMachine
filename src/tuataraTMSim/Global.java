@@ -114,6 +114,33 @@ public final class Global
     }
 
     /**
+     * Whether message boxes are being swallowed rather than shown.
+     */
+    private static boolean s_messagesSuppressed = false;
+
+    /**
+     * Stop showing message boxes, or start again. A message box waits for a click, so one raised by
+     * a run an assistant started stops the app dead: nobody is necessarily watching the screen, and
+     * the event thread cannot serve another request until it is dismissed. Every message box raised
+     * during a simulation says the same thing the console has already been told, so suppressing it
+     * loses nothing -- the console keeps the record.
+     * @param suppressed true to swallow message boxes.
+     */
+    public static void setMessagesSuppressed(boolean suppressed)
+    {
+        s_messagesSuppressed = suppressed;
+    }
+
+    /**
+     * Determine whether message boxes are currently being swallowed.
+     * @return true if message boxes are suppressed.
+     */
+    public static boolean areMessagesSuppressed()
+    {
+        return s_messagesSuppressed;
+    }
+
+    /**
      * NOTE: Nonstandard Tuatara modification: Gets an integer.
      * @return -1 if the function threw: Otherwise the integer as obtained from dialog.
      */
@@ -140,6 +167,10 @@ public final class Global
      */
     public static void showInfoMessage(String title, String fmt, Object... args)
     {
+        if (s_messagesSuppressed)
+        {
+            return;
+        }
         JOptionPane.showMessageDialog(MainWindow.getInstance(), String.format(fmt, args), title,
                 JOptionPane.INFORMATION_MESSAGE, null);
     }
@@ -153,6 +184,10 @@ public final class Global
      */
     public static void showWarningMessage(String title, String fmt, Object... args)
     {
+        if (s_messagesSuppressed)
+        {
+            return;
+        }
         JOptionPane.showMessageDialog(MainWindow.getInstance(), String.format(fmt, args), title,
                 JOptionPane.WARNING_MESSAGE, null);
     }
@@ -166,6 +201,10 @@ public final class Global
      */
     public static void showErrorMessage(String title, String fmt, Object... args)
     {
+        if (s_messagesSuppressed)
+        {
+            return;
+        }
         JOptionPane.showMessageDialog(MainWindow.getInstance(), String.format(fmt, args), title,
                 JOptionPane.ERROR_MESSAGE, null);
     }

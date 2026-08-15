@@ -432,10 +432,22 @@ public class MainWindow extends JFrame
     }
 
     /**
-     * Start executing a machine on the timer, as the Execute action does.
+     * Start executing a machine on the timer, as the Execute action does, asking for the step limit
+     * if the speed is instant.
      * @param panel The panel whose machine should run.
      */
     public void startExecution(MachineGraphicsPanel panel)
+    {
+        startExecution(panel, 0);
+    }
+
+    /**
+     * Start executing a machine on the timer, as the Execute action does.
+     * @param panel The panel whose machine should run.
+     * @param maxSteps The step limit to use if the speed is instant, or 0 to ask for one. At any
+     *                 other speed the machine runs on the timer and the limit does not apply.
+     */
+    public void startExecution(MachineGraphicsPanel panel, int maxSteps)
     {
         if (m_timerTask != null)
         {
@@ -444,7 +456,7 @@ public class MainWindow extends JFrame
         setEditingEnabled(false);
         if (m_executionDelayTime <= 0)
         {
-            executeWithoutDelay(panel);
+            executeWithoutDelay(panel, maxSteps);
             return;
         }
         m_timerTask = new ExecutionTimerTask(panel, m_tapeDisp);
@@ -1523,11 +1535,12 @@ public class MainWindow extends JFrame
 
     /**
      * Run a machine straight through to a halt, rather than stepping it on a timer. Because this
-     * cannot be watched as it happens, and because a machine may not halt at all, the user is asked
-     * for a limit on the number of steps first.
+     * cannot be watched as it happens, and because a machine may not halt at all, a limit on the
+     * number of steps is needed; the user is asked for one unless a caller has supplied it.
      * @param panel The panel whose machine is to be run.
+     * @param maxSteps The step limit, or 0 to ask the user for one.
      */
-    private void executeWithoutDelay(MachineGraphicsPanel panel)
+    private void executeWithoutDelay(MachineGraphicsPanel panel, int maxSteps)
     {
         Simulator sim = panel.getSimulator();
 
@@ -1541,7 +1554,10 @@ public class MainWindow extends JFrame
             return;
         }
 
-        int maxSteps = Global.getInteger();
+        if (maxSteps <= 0)
+        {
+            maxSteps = Global.getInteger();
+        }
         if (maxSteps <= 0)
         {
             // The prompt was cancelled or the answer was not a usable number; leave the machine be.
@@ -2911,6 +2927,12 @@ public class MainWindow extends JFrame
         {
             public void actionPerformed(ActionEvent e)
             {
+                // A real event means the user stepped the machine themselves; see the Execute
+                // action.
+                if (e != null)
+                {
+                    Global.setMessagesSuppressed(false);
+                }
                 MachineGraphicsPanel gfxPanel = getSelectedGraphicsPanel();
                 if (gfxPanel == null)
                 {
@@ -2986,7 +3008,13 @@ public class MainWindow extends JFrame
                        KeyStroke.getKeyStroke(KeyEvent.VK_E, KeyEvent.CTRL_DOWN_MASK))
         {
             public void actionPerformed(ActionEvent e)
-            { 
+            {
+                // A real event means the user started this run themselves, so they are there to
+                // read anything the machine has to say about it.
+                if (e != null)
+                {
+                    Global.setMessagesSuppressed(false);
+                }
                 MachineGraphicsPanel panel = getSelectedGraphicsPanel();
                 if (panel != null)
                 {
@@ -3000,7 +3028,7 @@ public class MainWindow extends JFrame
                     // a halt in one go rather than animating it step by step.
                     if (m_executionDelayTime <= 0)
                     {
-                        executeWithoutDelay(panel);
+                        executeWithoutDelay(panel, 0);
                         return;
                     }
 
