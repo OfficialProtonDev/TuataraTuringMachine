@@ -58,6 +58,34 @@ public class MachineInternalFrame extends JPanel
     }
 
     /**
+     * Show a strip above the diagram, or take the current one down.
+     * @param banner The banner to show, or null to remove whatever is there.
+     */
+    public void setBanner(ProposalBanner banner)
+    {
+        if (m_banner != null)
+        {
+            remove(m_banner);
+        }
+        m_banner = banner;
+        if (m_banner != null)
+        {
+            add(m_banner, BorderLayout.NORTH);
+        }
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * The strip currently shown above the diagram.
+     * @return The banner, or null if there is none.
+     */
+    public ProposalBanner getBanner()
+    {
+        return m_banner;
+    }
+
+    /**
      * Gets the current graphics panel.
      * @return The current graphics panel
      */
@@ -192,6 +220,11 @@ public class MachineInternalFrame extends JPanel
      * The current graphics panel.
      */
     private MachineGraphicsPanel m_gfxPanel;
+
+    /**
+     * The strip shown above the diagram, or null.
+     */
+    private ProposalBanner m_banner;
 
     /**
      * The window index.

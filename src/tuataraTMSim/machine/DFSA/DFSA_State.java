@@ -72,6 +72,12 @@ public class DFSA_State extends State<DFSA_Action, DFSA_Transition, DFSA_Machine
      */
     public ArrayList<DFSA_Transition> getTransitions()
     {
+        // Created on demand: the field is transient, so a state read back from a file starts
+        // without one. See the note on m_transitions.
+        if (m_transitions == null)
+        {
+            m_transitions = new ArrayList<DFSA_Transition>();
+        }
         return m_transitions;
     }
 
@@ -82,7 +88,7 @@ public class DFSA_State extends State<DFSA_Action, DFSA_Transition, DFSA_Machine
      */
     public void addTransition(DFSA_Transition tr)
     {
-        m_transitions.add(tr);
+        getTransitions().add(tr);
     }
 
     /**
@@ -92,7 +98,7 @@ public class DFSA_State extends State<DFSA_Action, DFSA_Transition, DFSA_Machine
      */
     public void removeTransition(DFSA_Transition tr)
     {
-        m_transitions.remove(tr);
+        getTransitions().remove(tr);
     }
 
     /**
@@ -102,11 +108,17 @@ public class DFSA_State extends State<DFSA_Action, DFSA_Transition, DFSA_Machine
      */
     public void removeAllTransitions()
     {
-        m_transitions.clear();
+        getTransitions().clear();
     }
 
     /**
      * The list of transitions leaving this state.
+     *
+     * Transient, and rebuilt by the machine after loading. The machine already holds every
+     * transition in one flat list, so storing them here as well made the saved form a chain --
+     * state to transition to state to transition -- which the deserializer walks recursively. A
+     * machine of a couple of hundred states linked in a line was enough to overflow the stack and
+     * lose the file.
      */
-    protected ArrayList<DFSA_Transition> m_transitions;
+    protected transient ArrayList<DFSA_Transition> m_transitions;
 }

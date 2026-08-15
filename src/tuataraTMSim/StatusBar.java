@@ -63,8 +63,12 @@ public class StatusBar extends JPanel
             }
         });
 
+        m_agent = segment("validate", "");
+        m_agent.setVisible(false);
+
         m_right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         m_right.setOpaque(false);
+        m_right.add(m_agent);
         m_right.add(m_tapeInfo);
         m_right.add(m_theme);
 
@@ -163,6 +167,20 @@ public class StatusBar extends JPanel
     }
 
     /**
+     * Show whether an assistant can see this window. Worth a permanent place rather than a
+     * notification: the point is that it should never be a surprise.
+     * @param text What to say, or an empty string to show nothing.
+     * @param tint The colour to say it in, or null for the usual muted one.
+     */
+    public void setAgentInfo(String text, Color tint)
+    {
+        m_agent.setIcon(Icons.get("validate", 14, tint != null? tint : Theme.palette().textMuted));
+        m_agent.setForeground(tint != null? tint : Theme.palette().textMuted);
+        m_agent.setText(text);
+        m_agent.setVisible(!text.isEmpty());
+    }
+
+    /**
      * Apply the current palette to this bar.
      */
     private void applyTheme()
@@ -203,6 +221,11 @@ public class StatusBar extends JPanel
      * Segment describing the tape.
      */
     private JLabel m_tapeInfo;
+
+    /**
+     * Shows whether an assistant is connected.
+     */
+    private JLabel m_agent;
 
     /**
      * Button toggling between the light and dark palettes.

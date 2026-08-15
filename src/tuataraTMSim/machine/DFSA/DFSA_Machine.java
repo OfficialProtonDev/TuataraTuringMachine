@@ -306,6 +306,32 @@ public class DFSA_Machine extends Machine<DFSA_Action, DFSA_Transition, DFSA_Sta
     /**
      * The set of states in the machine.
      */
+    /**
+     * Rebuild each state's list of outgoing transitions, which is not saved with the file.
+     *
+     * The machine's own flat transition list is the record; a state's copy is an index into it,
+     * kept for speed. Saving both made the file a chain the deserializer had to walk recursively,
+     * and a machine of a few hundred states in a line overflowed the stack. Rebuilding here costs
+     * one pass and removes the limit entirely. Files written by older versions still load: the
+     * fields they carry for the old layout are read and discarded, then replaced by this.
+     * @param in The stream being read.
+     * @throws IOException If an underlying stream exception occurs.
+     * @throws ClassNotFoundException If a serialized object is not recognized.
+     */
+    private void readObject(java.io.ObjectInputStream in)
+        throws java.io.IOException, ClassNotFoundException
+    {
+        in.defaultReadObject();
+        for (DFSA_State state : m_states)
+        {
+            state.removeAllTransitions();
+        }
+        for (DFSA_Transition transition : m_transitions)
+        {
+            transition.getFromState().addTransition(transition);
+        }
+    }
+
     protected ArrayList<DFSA_State> m_states;
 
     /**

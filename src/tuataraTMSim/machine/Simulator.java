@@ -37,7 +37,60 @@ public abstract class Simulator<
     TRANSITION extends Transition<PREACTION, STATE, MACHINE, ?>,
     STATE extends State<PREACTION, TRANSITION, MACHINE, ?>,
     MACHINE extends Machine<PREACTION, TRANSITION, STATE, ?>>
-{  
+{
+    /**
+     * Decides which way to go when a machine offers more than one. Interactively this is the user,
+     * asked with a dialog. A simulation running with nobody watching -- a batch of test inputs, say
+     * -- needs an answer that does not involve a window, which is what this abstraction is for.
+     */
+    public interface Chooser
+    {
+        /**
+         * Pick one of several options.
+         * @param options The options to choose between; never empty.
+         * @param prompt A description of the choice being made.
+         * @param label Renders an option as text.
+         * @return The chosen option, or null if the choice was declined.
+         * @throws NondeterminismException If this chooser refuses to choose at all.
+         */
+        <T> T choose(java.util.Collection<T> options, String prompt,
+                     java.util.function.Function<T, String> label)
+            throws NondeterminismException;
+    }
+
+    /**
+     * Asks the user, with a dialog. The behaviour the program has always had, and the default.
+     */
+    public static final Chooser ASK_USER = new Chooser()
+    {
+        public <T> T choose(java.util.Collection<T> options, String prompt,
+                            java.util.function.Function<T, String> label)
+        {
+            return tuataraTMSim.Global.promptSelection(options, prompt, label);
+        }
+    };
+
+    /**
+     * Refuses to choose, stopping the run instead. Used when there is no user to ask: guessing a
+     * branch would report a verdict for a machine the user never wrote.
+     */
+    public static final Chooser REFUSE = new Chooser()
+    {
+        public <T> T choose(java.util.Collection<T> options, String prompt,
+                            java.util.function.Function<T, String> label)
+            throws NondeterminismException
+        {
+            StringBuilder sb = new StringBuilder();
+            for (T option : options)
+            {
+                sb.append(sb.length() == 0? "" : ", ").append(label.apply(option));
+            }
+            throw new NondeterminismException(String.format(
+                        "%s -- the machine offers %d ways forward (%s) and there is nobody to ask",
+                        prompt, options.size(), sb));
+        }
+    };
+
     /**
      * Creates an instance of Simulator.
      * @param tape The underlying tape.
@@ -45,6 +98,24 @@ public abstract class Simulator<
     public Simulator(Tape tape)
     {
         m_tape = tape;
+    }
+
+    /**
+     * Get the strategy used to resolve a choice between several ways forward.
+     * @return The current chooser; never null.
+     */
+    public Chooser getChooser()
+    {
+        return m_chooser;
+    }
+
+    /**
+     * Set the strategy used to resolve a choice between several ways forward.
+     * @param chooser The chooser to use. A null value restores the default of asking the user.
+     */
+    public void setChooser(Chooser chooser)
+    {
+        m_chooser = chooser == null? ASK_USER : chooser;
     }
 
     /**
@@ -177,4 +248,9 @@ public abstract class Simulator<
      * The current tape.
      */
     protected Tape m_tape;
+
+    /**
+     * How this simulation resolves a choice between several ways forward.
+     */
+    protected Chooser m_chooser = ASK_USER;
 }

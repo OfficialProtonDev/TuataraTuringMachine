@@ -90,7 +90,7 @@ public class TM_Action extends PreAction
         }
         else
         {
-            dir = 0;
+            m_direction = 0;
         }
     }
 

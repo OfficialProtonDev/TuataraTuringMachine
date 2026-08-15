@@ -361,6 +361,39 @@ public class ConsolePanel extends JPanel
     }
 
     /**
+     * The last few lines written to the console, most recent last. Lets an agent see what the user
+     * has been told without reading their screen.
+     * @param lines How many lines to return at most.
+     * @return The lines, oldest first; never null.
+     */
+    public java.util.List<String> tail(int lines)
+    {
+        java.util.ArrayList<String> result = new java.util.ArrayList<String>();
+        if (lines <= 0)
+        {
+            return result;
+        }
+        String text;
+        try
+        {
+            text = m_doc.getText(0, m_doc.getLength());
+        }
+        catch (javax.swing.text.BadLocationException e)
+        {
+            return result;
+        }
+        String[] all = text.split("\n");
+        for (int i = Math.max(0, all.length - lines); i < all.length; i++)
+        {
+            if (all[i].trim().length() > 0)
+            {
+                result.add(all[i]);
+            }
+        }
+        return result;
+    }
+
+    /**
      * The underlying text pane used to store the logged text.
      */
     private JTextPane m_text;

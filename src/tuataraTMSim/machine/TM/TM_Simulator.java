@@ -145,7 +145,7 @@ public class TM_Simulator extends Simulator<TM_Action, TM_Transition, TM_State, 
             }
             else
             {
-                m_state = Global.promptSelection(startStates, "Please choose which start state to use", TM_State::getLabel);
+                m_state = m_chooser.choose(startStates, "Please choose which start state to use", TM_State::getLabel);
                 // User cancelled
                 if (m_state == null)
                 {
@@ -171,7 +171,7 @@ public class TM_Simulator extends Simulator<TM_Action, TM_Transition, TM_State, 
                 }
                 else
                 {
-                    TM_Transition t = Global.promptSelection(next, "Please select which transition to use", TM_Transition::toString);
+                    TM_Transition t = m_chooser.choose(next, "Please select which transition to use", TM_Transition::toString);
                     if (t == null)
                     {
                         throw new ComputationFailedException("No transition chosen");
@@ -216,7 +216,7 @@ public class TM_Simulator extends Simulator<TM_Action, TM_Transition, TM_State, 
                     }
                     else
                     {
-                        TM_Transition t = Global.promptSelection(next, "Please select which transition to use", TM_Transition::toString);
+                        TM_Transition t = m_chooser.choose(next, "Please select which transition to use", TM_Transition::toString);
                         if (t == null)
                         {
                             throw new ComputationFailedException("No transition chosen");

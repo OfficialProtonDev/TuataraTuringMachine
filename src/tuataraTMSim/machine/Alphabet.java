@@ -128,9 +128,9 @@ public class Alphabet implements Serializable, Cloneable
      */
     public void setAlphabetical(boolean value)
     {
-        for (boolean l : m_letters)
+        for (int i = 0; i < m_letters.length; i++)
         {
-            l = value;
+            m_letters[i] = value;
         }
     }
     
@@ -141,9 +141,9 @@ public class Alphabet implements Serializable, Cloneable
      */
    public void setDigits(boolean value)
     {
-        for (boolean d : m_digits)
+        for (int i = 0; i < m_digits.length; i++)
         {
-            d = value;
+            m_digits[i] = value;
         }
     }
     

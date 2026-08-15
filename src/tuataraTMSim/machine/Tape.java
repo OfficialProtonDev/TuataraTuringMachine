@@ -26,6 +26,7 @@
 package tuataraTMSim.machine;
 
 import java.io.*;
+import java.util.ArrayList;
 import javax.swing.filechooser.FileFilter;
 import tuataraTMSim.exceptions.ComputationFailedException;
 
@@ -65,7 +66,61 @@ public abstract class Tape implements Serializable
         }
     };
 
-    /** 
+    /**
+     * Notified whenever a tape changes. The window uses this to repaint; a tape with no listeners
+     * costs nothing, which is what lets a tape be driven off-screen and at speed.
+     */
+    public interface Listener
+    {
+        /**
+         * Called after the tape's contents or head position have changed.
+         * @param tape The tape which changed.
+         */
+        void tapeChanged(Tape tape);
+    }
+
+    /**
+     * Register a listener to be told about changes to this tape.
+     * @param l The listener to add.
+     */
+    public void addListener(Listener l)
+    {
+        if (m_listeners == null)
+        {
+            m_listeners = new ArrayList<Listener>();
+        }
+        m_listeners.add(l);
+    }
+
+    /**
+     * Stop telling a listener about changes to this tape.
+     * @param l The listener to remove.
+     */
+    public void removeListener(Listener l)
+    {
+        if (m_listeners != null)
+        {
+            m_listeners.remove(l);
+        }
+    }
+
+    /**
+     * Tell every listener that this tape has changed. Subclasses call this instead of reaching for
+     * the main window, so that a tape works with no window at all.
+     */
+    protected void fireChanged()
+    {
+        if (m_listeners == null)
+        {
+            return;
+        }
+        for (int i = 0; i < m_listeners.size(); i++)
+        {
+            m_listeners.get(i).tapeChanged(this);
+        }
+    }
+
+    /**
      * Read the current character from the tape, at the position of the read/write head.
      * @return The current character from the tape, at the positoin of the
      read/write head.
@@ -168,5 +223,12 @@ public abstract class Tape implements Serializable
         Tape result = (Tape)in.readObject();
         in.close();
         return result;
-    }   
+    }
+
+    /**
+     * Listeners to notify when this tape changes. Transient, because who is watching a tape is a
+     * property of the running program and not of the tape itself; a deserialized tape starts with
+     * none, and the field stays null until someone asks to listen.
+     */
+    private transient ArrayList<Listener> m_listeners;
 }

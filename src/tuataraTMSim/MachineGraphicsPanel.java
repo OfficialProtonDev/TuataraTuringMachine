@@ -216,15 +216,31 @@ public abstract class MachineGraphicsPanel<
      */
     public String getFilename()
     {
-        if (m_file == null)
-        {
-            return String.format("untitled-%d", m_iFrame.getIndex()); 
-        }
-        else
+        if (m_file != null)
         {
             return m_file.getName();
         }
-    }       
+        // A machine can have a name before it has a file -- one built from a description, say --
+        // and calling that tab "untitled-3" throws away the only name anybody gave it.
+        if (m_documentName != null && !m_documentName.trim().isEmpty())
+        {
+            return m_documentName;
+        }
+        return String.format("untitled-%d", m_iFrame.getIndex());
+    }
+
+    /**
+     * Name a machine that has no file yet. Ignored once it is saved, since the file name wins.
+     * @param name What to call it.
+     */
+    public void setDocumentName(String name)
+    {
+        m_documentName = name;
+        if (m_iFrame != null)
+        {
+            m_iFrame.updateTitle();
+        }
+    }
 
     /**
      * Determine if the machine has been modified since its last save.
@@ -458,6 +474,7 @@ public abstract class MachineGraphicsPanel<
         }
 
         getSimulator().getMachine().paint(g, m_selectedStates, m_selectedTransitions, getSimulator());
+        paintLayoutPreview(g2d);
         if (m_currentMode == GUI_Mode.ADDTRANSITIONS && m_mousePressedState != null)
         {
             if (!(m_drawPosX == Integer.MIN_VALUE) || !(m_drawPosY == Integer.MIN_VALUE))
@@ -1406,6 +1423,77 @@ public abstract class MachineGraphicsPanel<
     }
 
     /**
+     * Ghost where a suggested layout would put each state, without moving anything.
+     *
+     * Shown while the user holds down Preview on the banner an assistant's suggestion puts up. A
+     * dashed outline and a line from each state to where it would go says more than a description
+     * of the rearrangement ever could, and costs nothing to change one's mind about.
+     * @param positions Where each state would go, keyed by label, or null to show nothing.
+     */
+    public void setLayoutPreview(java.util.Map<String, int[]> positions)
+    {
+        m_layoutPreview = positions;
+        repaint();
+    }
+
+    /**
+     * Draw the ghosted positions, if any.
+     * @param g2d The graphics object to render to.
+     */
+    protected void paintLayoutPreview(Graphics2D g2d)
+    {
+        if (m_layoutPreview == null)
+        {
+            return;
+        }
+        Theme.Palette p = Theme.palette();
+        Stroke previous = g2d.getStroke();
+        g2d.setStroke(DASHED_STROKE);
+        for (Object o : getSimulator().getMachine().getStates())
+        {
+            State state = (State)o;
+            int[] to = m_layoutPreview.get(state.getLabel());
+            if (to == null)
+            {
+                continue;
+            }
+            int w = STATE.STATE_RENDERING_WIDTH;
+            g2d.setColor(Theme.alpha(p.accent, 130));
+            g2d.draw(new Ellipse2D.Float(to[0], to[1], w, w));
+            if (to[0] != state.getX() || to[1] != state.getY())
+            {
+                g2d.setColor(Theme.alpha(p.accent, 80));
+                g2d.draw(new Line2D.Float(state.getX() + w / 2f, state.getY() + w / 2f,
+                            to[0] + w / 2f, to[1] + w / 2f));
+            }
+        }
+        g2d.setStroke(previous);
+    }
+
+    /**
+     * Determine whether the user has arranged this diagram themselves.
+     *
+     * This is the only thing that decides whether an agent may rearrange the whole machine or has
+     * to offer instead. It becomes true the first time a state is dragged or dropped with the
+     * mouse, and stays true: a diagram somebody has touched is theirs, and shuffling it without
+     * asking is the rudest thing an assistant can do to a drawing.
+     * @return true if any state has been placed by hand.
+     */
+    public boolean isHandPositioned()
+    {
+        return m_handPositioned;
+    }
+
+    /**
+     * Record whether the user has arranged this diagram themselves.
+     * @param value true if any state has been placed by hand.
+     */
+    public void setHandPositioned(boolean value)
+    {
+        m_handPositioned = value;
+    }
+
+    /**
      * Determine if the label dictionary contains a given label.
      * @param name The label to check.
      * @return true if name is a used label, false otherwise.
@@ -1493,7 +1581,10 @@ public abstract class MachineGraphicsPanel<
         m_undoStack.add(command);
         m_redoStack.clear();
         setModifiedSinceSave(true);
-        MainWindow.getInstance().updateUndoActions();
+        if (MainWindow.getInstance() != null)
+        {
+            MainWindow.getInstance().updateUndoActions();
+        }
         repaint();
     }
 
@@ -1506,7 +1597,10 @@ public abstract class MachineGraphicsPanel<
     {
         m_undoStack.add(command);
         m_redoStack.clear();
-        MainWindow.getInstance().updateUndoActions();
+        if (MainWindow.getInstance() != null)
+        {
+            MainWindow.getInstance().updateUndoActions();
+        }
         repaint();
     }
 
@@ -1521,7 +1615,10 @@ public abstract class MachineGraphicsPanel<
             c.undoCommand();
             m_redoStack.add(c);
             setModifiedSinceSave(true);
+            if (MainWindow.getInstance() != null)
+        {
             MainWindow.getInstance().updateUndoActions();
+        }
             repaint();
         }
         catch (NoSuchElementException e) { }
@@ -1538,7 +1635,10 @@ public abstract class MachineGraphicsPanel<
             c.doCommand();
             m_undoStack.add(c);
             setModifiedSinceSave(true);
+            if (MainWindow.getInstance() != null)
+        {
             MainWindow.getInstance().updateUndoActions();
+        }
             repaint();
         }
         catch (NoSuchElementException e) { }
@@ -1610,6 +1710,7 @@ public abstract class MachineGraphicsPanel<
                     Collection<State> statesCopy = (Collection<State>)m_selectedStates.clone();
                     Collection<Transition> transitionsCopy = (Collection<Transition>)m_selectedTransitions.clone();
                     addCommand(new MoveSelectedCommand(this, statesCopy, transitionsCopy, translateX, translateY));
+                    m_handPositioned = true;
                 }
                 else
                 {
@@ -1617,6 +1718,7 @@ public abstract class MachineGraphicsPanel<
                     Collection<Transition> transitions = new ArrayList<Transition>();
                     transitions.addAll(m_transitionsToMoveState);
                     addCommand(new MoveStateCommand(this, m_mousePressedState, translateX, translateY, transitions));
+                    m_handPositioned = true;
                 }
             }
         }
@@ -1658,6 +1760,7 @@ public abstract class MachineGraphicsPanel<
             y = e.getY() - STATE.STATE_RENDERING_WIDTH / 2;
                 String label = getFirstFreeName();
                 doCommand(new AddStateCommand(this, makeState(label, x, y)));
+                m_handPositioned = true;
     }
 
     /** 
@@ -1999,6 +2102,21 @@ public abstract class MachineGraphicsPanel<
      * Set of labels in use.
      */
     protected HashSet<String> m_labelsUsed = new HashSet<String>();
+
+    /**
+     * Whether the user has placed any state in this diagram themselves. See isHandPositioned.
+     */
+    protected boolean m_handPositioned = false;
+
+    /**
+     * What to call this machine before it has a file, or null to fall back to "untitled-N".
+     */
+    protected String m_documentName;
+
+    /**
+     * Where a suggested layout would put each state, or null when nothing is being previewed.
+     */
+    protected java.util.Map<String, int[]> m_layoutPreview;
 
     /**
      * Scratch context used to measure text while hit testing, or null before it is first needed.

@@ -206,6 +206,26 @@ public class MainWindow extends JFrame
      */
     public static void main(String[] args)
     {
+        // Started with --mcp, this is not a program with a window at all: it speaks to an assistant
+        // over its own input and output and forwards to whichever window is running, starting one
+        // if there is none. Nothing here may touch Swing, and nothing may print to standard output.
+        for (String arg : args)
+        {
+            if ("--mcp".equals(arg))
+            {
+                try
+                {
+                    tuataraTMSim.agent.McpAdapter.run(args);
+                }
+                catch (Exception e)
+                {
+                    System.err.println("tuatara: " + e);
+                    System.exit(1);
+                }
+                return;
+            }
+        }
+
         // Install the theme, which also chooses the look-and-feel, before building any component.
         Theme.install();
 
@@ -216,6 +236,41 @@ public class MainWindow extends JFrame
                 (new MainWindow()).setVisible(true);
             }
         });
+    }
+
+    /**
+     * Start listening for an assistant, unless the user has asked us not to.
+     *
+     * On by default, because the alternative is that the first thing an assistant says is that it
+     * cannot see anything. It listens on the loopback interface only and answers nothing without
+     * the token it writes to the user's home directory; the status bar says when it is on, and the
+     * Configuration menu turns it off.
+     */
+    private void startAgentAccess()
+    {
+        tuataraTMSim.agent.Workspace.loadDrafts();
+        tuataraTMSim.agent.AgentServer.setListener(new tuataraTMSim.agent.AgentServer.Listener()
+        {
+            public void agentActivity()
+            {
+                refreshStatus();
+            }
+        });
+        if ("off".equalsIgnoreCase(System.getProperty("tuatara.agent", "on")))
+        {
+            m_console.log("Assistant access is off (-Dtuatara.agent=off)");
+            return;
+        }
+        try
+        {
+            tuataraTMSim.agent.AgentServer.start();
+            m_console.log("Assistant access listening on 127.0.0.1:%d — turn it off under Configuration",
+                    tuataraTMSim.agent.AgentServer.getPort());
+        }
+        catch (Exception e)
+        {
+            m_console.logWarning("Assistant access could not start: %s", e.getMessage());
+        }
     }
 
     /**
@@ -234,6 +289,166 @@ public class MainWindow extends JFrame
     public ConsolePanel getConsole()
     {
         return m_console;
+    }
+
+    /**
+     * Determine whether a machine is being executed on the timer.
+     * @return true if a simulation is running.
+     */
+    public boolean isExecuting()
+    {
+        return m_timerTask != null && m_timerTask.isRunning();
+    }
+
+    /**
+     * Get the panel whose machine is being executed.
+     * @return The panel being executed, or null if nothing is running.
+     */
+    public MachineGraphicsPanel getExecutingPanel()
+    {
+        return isExecuting()? m_timerTask.getPanel() : null;
+    }
+
+    /**
+     * Get the delay between steps of an executing machine, in milliseconds. Zero means the machine
+     * is run through to a halt in one go rather than animated.
+     * @return The current delay.
+     */
+    public int getExecutionDelayTime()
+    {
+        return m_executionDelayTime;
+    }
+
+    /**
+     * Get the name of the current execution speed, as the menu and toolbar spell it.
+     * @return The speed's name.
+     */
+    public String getExecutionSpeedName()
+    {
+        switch (m_executionDelayTime)
+        {
+            case SLOW_EXECUTE_SPEED_DELAY:      return "slow";
+            case MEDIUM_EXECUTE_SPEED_DELAY:    return "medium";
+            case FAST_EXECUTE_SPEED_DELAY:      return "fast";
+            case SUPERFAST_EXECUTE_SPEED_DELAY: return "superfast";
+            case ULTRAFAST_EXECUTE_SPEED_DELAY: return "ultrafast";
+            case ZERO_EXECUTE_SPEED_DELAY:      return "instant";
+            default:                            return String.valueOf(m_executionDelayTime);
+        }
+    }
+
+    /**
+     * Set the execution speed by the name the menu gives it.
+     * @param name One of slow, medium, fast, superfast, ultrafast or instant.
+     * @return true if the name was recognised.
+     */
+    public boolean setExecutionSpeedByName(String name)
+    {
+        Action action =
+            "slow".equals(name)?      m_slowExecuteSpeedAction :
+            "medium".equals(name)?    m_mediumExecuteSpeedAction :
+            "fast".equals(name)?      m_fastExecuteSpeedAction :
+            "superfast".equals(name)? m_superFastExecuteSpeedAction :
+            "ultrafast".equals(name)? m_ultraFastExecuteSpeedAction :
+            "instant".equals(name)?   m_zeroDelayExecuteSpeedAction : null;
+        if (action == null)
+        {
+            return false;
+        }
+        action.actionPerformed(null);
+        return true;
+    }
+
+    /**
+     * Determine whether the console is showing.
+     * @return true if the console is visible.
+     */
+    public boolean isConsoleVisible()
+    {
+        return m_console != null && m_console.isVisible();
+    }
+
+    /**
+     * Determine whether the status bar is showing.
+     * @return true if the status bar is visible.
+     */
+    public boolean isStatusBarVisible()
+    {
+        return m_statusBar != null && m_statusBar.isVisible();
+    }
+
+    /**
+     * Determine whether the tape is showing.
+     * @return true if the tape strip is visible.
+     */
+    public boolean isTapeVisible()
+    {
+        return m_tapeDispController != null && m_tapeDispController.isVisible();
+    }
+
+    /**
+     * Show or hide the console, the status bar or the tape.
+     * @param which One of "console", "status_bar" or "tape".
+     * @param visible Whether it should be showing.
+     * @return true if the name was recognised.
+     */
+    public boolean setPanelVisible(String which, boolean visible)
+    {
+        if ("console".equals(which))
+        {
+            if (isConsoleVisible() != visible)
+            {
+                m_toggleConsoleAction.actionPerformed(null);
+            }
+            return true;
+        }
+        if ("status_bar".equals(which))
+        {
+            if (isStatusBarVisible() != visible)
+            {
+                m_toggleStatusBarAction.actionPerformed(null);
+            }
+            return true;
+        }
+        if ("tape".equals(which))
+        {
+            if (isTapeVisible() != visible)
+            {
+                m_toggleTapeAction.actionPerformed(null);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Get the panel showing the tape, so that it can be repainted when the tape changes underneath
+     * it.
+     * @return The tape display.
+     */
+    public TapeDisplayPanel getTapeDisplay()
+    {
+        return m_tapeDisp;
+    }
+
+    /**
+     * Start executing a machine on the timer, as the Execute action does.
+     * @param panel The panel whose machine should run.
+     */
+    public void startExecution(MachineGraphicsPanel panel)
+    {
+        if (m_timerTask != null)
+        {
+            m_timerTask.cancel();
+        }
+        setEditingEnabled(false);
+        if (m_executionDelayTime <= 0)
+        {
+            executeWithoutDelay(panel);
+            return;
+        }
+        m_timerTask = new ExecutionTimerTask(panel, m_tapeDisp);
+        m_timer.schedule(m_timerTask, 0, m_executionDelayTime);
     }
 
     /** 
@@ -365,8 +580,17 @@ public class MainWindow extends JFrame
         m_mainSplit.setResizeWeight(0.82D);
         m_mainSplit.setBorder(BorderFactory.createEmptyBorder());
 
-        // Set up the tape and associated controllers
+        // Set up the tape and associated controllers. The tape reports its own changes rather than
+        // reaching back for this window, so that the same tape class can be driven off-screen with
+        // nothing listening.
         m_tape = new CA_Tape();
+        m_tape.addListener(new Tape.Listener()
+        {
+            public void tapeChanged(Tape tape)
+            {
+                updateAllSimulators();
+            }
+        });
         m_tapeDisp = new TapeDisplayPanel(m_tape);
         m_tapeDispController =
             new TapeDisplayControllerPanel(m_tapeDisp, m_headToStartAction, m_eraseTapeAction, m_reloadTapeAction);
@@ -408,6 +632,8 @@ public class MainWindow extends JFrame
             }
         });
         applyTheme();
+
+        startAgentAccess();
 
         // Disable all toolbars (no default machine)
         setEnabledActionsThatRequireAMachine(false);
@@ -538,6 +764,17 @@ public class MainWindow extends JFrame
         if (m_tape != null)
         {
             m_statusBar.setTapeInfo(String.format("Head at %d", m_tape.headLocation()));
+        }
+
+        if (!tuataraTMSim.agent.AgentServer.isRunning())
+        {
+            m_statusBar.setAgentInfo("", null);
+        }
+        else
+        {
+            int calls = tuataraTMSim.agent.AgentServer.getCallCount();
+            m_statusBar.setAgentInfo(calls == 0? "Assistant: waiting" : "Assistant: connected",
+                    calls == 0? null : Theme.palette().accent);
         }
     }
 
@@ -783,8 +1020,14 @@ public class MainWindow extends JFrame
         menuBar.add(configMenu);
 
         configMenu.add(new JMenuItem(m_configureAlphabetAction));
-        
-        
+        configMenu.addSeparator();
+
+        m_agentAccessItem = new JCheckBoxMenuItem(m_toggleAgentAccessAction);
+        m_agentAccessItem.setSelected(tuataraTMSim.agent.AgentServer.isRunning());
+        configMenu.add(m_agentAccessItem);
+        configMenu.add(new JMenuItem(m_copyAgentSetupAction));
+
+
         // Help menu
         JMenu helpMenu = new JMenu("Help");
         helpMenu.setMnemonic(KeyEvent.VK_H);
@@ -1507,6 +1750,7 @@ public class MainWindow extends JFrame
     {
         if (m_tabs == null)
         {
+            tuataraTMSim.agent.AgentServer.stop();
             System.exit(0);
         }
         if (!m_editingEnabled)
@@ -2075,6 +2319,11 @@ public class MainWindow extends JFrame
      * Menu item reflecting whether the tape is shown.
      */
     private JCheckBoxMenuItem m_showTapeItem;
+
+    /**
+     * Menu item showing whether an assistant may reach this window.
+     */
+    private JCheckBoxMenuItem m_agentAccessItem;
 
     /**
      * Tape display panel.
@@ -2889,8 +3138,11 @@ public class MainWindow extends JFrame
                             null, options, options[1]);
                     if (result == JOptionPane.YES_OPTION) try
                     {
-                        m_tape = Tape.loadTape(tfile);
-                        m_tapeDisp.getTape().copyOther(m_tape);
+                        // Copy the loaded contents into the tape already in use rather than
+                        // swapping the field. Every simulator, the display and the change
+                        // listener hold a reference to that one object, and replacing it would
+                        // leave them all pointing at the tape the user just discarded.
+                        m_tape.copyOther(Tape.loadTape(tfile));
                         m_tapeDisp.setFile(tfile);
                         m_tapeDisp.repaint();
                         m_console.log("Reloaded tape from file %s", tfile.toString());
@@ -2954,7 +3206,72 @@ public class MainWindow extends JFrame
     /**
      * Action for displaying help documentation.
      */
-    public final Action m_helpAction = 
+    /**
+     * Action for letting an assistant see and edit the machines in this window, or stopping it.
+     */
+    public final Action m_toggleAgentAccessAction =
+        new MenuAction("Assistant access", null, null, null)
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                if (tuataraTMSim.agent.AgentServer.isRunning())
+                {
+                    tuataraTMSim.agent.AgentServer.stop();
+                    m_console.log("Assistant access turned off");
+                }
+                else try
+                {
+                    tuataraTMSim.agent.AgentServer.start();
+                    m_console.log("Assistant access listening on 127.0.0.1:%d",
+                            tuataraTMSim.agent.AgentServer.getPort());
+                }
+                catch (Exception ex)
+                {
+                    m_console.logError("Could not turn on assistant access: %s", ex.getMessage());
+                    Global.showErrorMessage("Assistant access",
+                            "Could not start: %s", ex.getMessage());
+                }
+                if (m_agentAccessItem != null)
+                {
+                    m_agentAccessItem.setSelected(tuataraTMSim.agent.AgentServer.isRunning());
+                }
+                refreshStatus();
+            }
+        };
+
+    /**
+     * Action for putting the command that connects an assistant onto the clipboard.
+     */
+    public final Action m_copyAgentSetupAction =
+        new MenuAction("Copy assistant setup command", null, null, null)
+        {
+            public void actionPerformed(ActionEvent e)
+            {
+                String jar = "TuataraTuringMachine.jar";
+                try
+                {
+                    File self = new File(MainWindow.class.getProtectionDomain()
+                            .getCodeSource().getLocation().toURI());
+                    if (self.isFile())
+                    {
+                        jar = self.getAbsolutePath();
+                    }
+                }
+                catch (Exception ignored)
+                {
+                    // Running from class files rather than an archive; the placeholder will do.
+                }
+                String command = String.format("claude mcp add tuatara -- java -jar \"%s\" --mcp", jar);
+                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new java.awt.datatransfer.StringSelection(command), null);
+                m_console.log("Copied to the clipboard: %s", command);
+                Global.showInfoMessage("Assistant access",
+                        "Copied to the clipboard:%n%n%s%n%nRun it in a terminal to connect Claude "
+                      + "Code to this program.", command);
+            }
+        };
+
+    public final Action m_helpAction =
         new MenuAction("Help", Icons.get("help", MENU_ICON_SIZE), null, 
                        KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0))
         {

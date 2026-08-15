@@ -124,7 +124,7 @@ public class DFSA_Simulator extends Simulator<DFSA_Action, DFSA_Transition, DFSA
             }
             else
             {
-                m_state = Global.promptSelection(startStates, "Please choose which start state to use", DFSA_State::getLabel);
+                m_state = m_chooser.choose(startStates, "Please choose which start state to use", DFSA_State::getLabel);
                 // User cancelled
                 if (m_state == null)
                 {
@@ -150,7 +150,7 @@ public class DFSA_Simulator extends Simulator<DFSA_Action, DFSA_Transition, DFSA
             if (hasLambda)
             {
                 // t could be null if the user cancels, if so this simply halts execution
-                DFSA_Transition t = Global.promptSelection(next, "Please select which transition to use, if any", DFSA_Transition::toString);
+                DFSA_Transition t = m_chooser.choose(next, "Please select which transition to use, if any", DFSA_Transition::toString);
                 m_state = m_machine.step(m_tape, m_state, t);
             }
             else if (next.size() == 0)
@@ -163,7 +163,7 @@ public class DFSA_Simulator extends Simulator<DFSA_Action, DFSA_Transition, DFSA
             }
             else
             {
-                DFSA_Transition t = Global.promptSelection(next, "Please select which transition to use", DFSA_Transition::toString);
+                DFSA_Transition t = m_chooser.choose(next, "Please select which transition to use", DFSA_Transition::toString);
                 if (t == null)
                 {
                     throw new ComputationFailedException("No transition chosen");

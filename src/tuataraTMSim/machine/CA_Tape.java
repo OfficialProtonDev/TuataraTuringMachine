@@ -28,7 +28,6 @@ package tuataraTMSim.machine;
 import java.io.IOException;
 import java.io.Serializable;
 import tuataraTMSim.exceptions.ComputationFailedException;
-import tuataraTMSim.MainWindow;
 
 /**
  * An implementation of Tape, using a char array.
@@ -55,7 +54,7 @@ public class CA_Tape extends Tape implements Serializable
     public CA_Tape(String initialTape)
     {
         setToString(initialTape);
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
     
     /**
@@ -79,7 +78,7 @@ public class CA_Tape extends Tape implements Serializable
             resetRWHead();
             throw new ComputationFailedException("Read/write head fell off the tape");
         }
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
     
     /** 
@@ -102,7 +101,7 @@ public class CA_Tape extends Tape implements Serializable
             }
             m_tapeArray = newArray;
         }
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
     
     /**
@@ -112,7 +111,7 @@ public class CA_Tape extends Tape implements Serializable
     public void write(char c)
     {
         m_tapeArray[m_headLoc] = c;
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
     
     /**
@@ -121,7 +120,7 @@ public class CA_Tape extends Tape implements Serializable
     public void resetRWHead()
     {
         m_headLoc = 0;
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
     
     /**
@@ -212,7 +211,7 @@ public class CA_Tape extends Tape implements Serializable
             m_tapeArray[i] = Tape.BLANK_SYMBOL;
         }
         m_headLoc = 0;
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
     
     /**
@@ -223,7 +222,7 @@ public class CA_Tape extends Tape implements Serializable
     public void copyOther(Tape other)
     {
         setToString(other.toString());
-        MainWindow.getInstance().updateAllSimulators();
+        fireChanged();
     }
    
     /**

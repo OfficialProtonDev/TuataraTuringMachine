@@ -147,9 +147,25 @@ public class ExecutionTimerTask extends TimerTask
     public boolean cancel()
     {
         boolean returner = super.cancel();
+        m_running = false;
         MainWindow.getInstance().setEditingEnabled(true);
         return returner;
     }
+
+    /**
+     * Determine whether this task is still stepping the machine. A cancelled TimerTask cannot be
+     * asked, so the answer is remembered here.
+     * @return true if the machine is still running.
+     */
+    public boolean isRunning()
+    {
+        return m_running;
+    }
+
+    /**
+     * Whether the machine is still being stepped.
+     */
+    private boolean m_running = true;
     
     /**
      * The current graphics panel.
