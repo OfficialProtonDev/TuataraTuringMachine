@@ -868,6 +868,14 @@ public final class Tools
                                  + "screen to run. Call open_in_app first, or use run_tests.");
                      }
                      MainWindow window = MainWindow.getInstance();
+
+                     // Read the step limit before anything changes, so a bad one is refused without
+                     // having already written over the user's tape.
+                     double limit = Json.num(args, "max_steps", Sandbox.DEFAULT_MAX_STEPS);
+                     if (limit < 1)
+                     {
+                         throw new AgentException("max_steps must be at least 1.");
+                     }
                      window.getTabPane().setSelectedComponent(target.frame);
 
                      // Nobody is necessarily watching the screen, and a message box waiting to be
@@ -900,11 +908,6 @@ public final class Tools
                      }
                      else if ("play".equals(action))
                      {
-                         double limit = Json.num(args, "max_steps", Sandbox.DEFAULT_MAX_STEPS);
-                         if (limit < 1)
-                         {
-                             throw new AgentException("max_steps must be at least 1.");
-                         }
                          window.startExecution(target.panel,
                                  (int)Math.min(Integer.MAX_VALUE, limit));
                      }
